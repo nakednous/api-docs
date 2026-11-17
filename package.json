@@ -1,0 +1,21 @@
+{
+  "name": "@nakednous/api-docs",
+  "version": "0.1.0",
+  "description": "The shared API reference scaffold for the nakednous libraries: ESM-only, CodeMirror 6, one editor bundle.",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nakednous/api-docs.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
+}
