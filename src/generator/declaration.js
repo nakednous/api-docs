@@ -61,7 +61,6 @@ export function normalize(declaration, pkg) {
       version: declaration.brand?.version ?? pkg.version,
       license: declaration.brand?.license ?? pkg.license ?? null,
     },
-    palette: declaration.palette ?? null,
     home: declaration.home ?? null,
     paths: {
       src: paths.src,
@@ -235,9 +234,14 @@ function normalizeSurface(surface) {
   return { global: surface.global ?? null, module: surface.module ?? null, globals: surface.globals ?? {}, check };
 }
 
-/** The page's chrome: the stylesheet, the favicons, the search box's two strings. */
+/**
+ * The page's chrome: the stylesheets in the order the page loads them — the
+ * package's base first where a site states one, then the site's own file — the
+ * favicons, and the search box's two strings.
+ */
 function normalizeShell(shell) {
   return {
+    base: normalizeBase(shell?.base),
     stylesheet: shell?.stylesheet ?? null,
     favicon: shell?.favicon ?? [],
     title: shell?.title ?? null,
@@ -246,6 +250,20 @@ function normalizeShell(shell) {
       label: shell?.search?.label ?? 'Search the API',
     },
   };
+}
+
+/**
+ * The site-relative path the package's base stylesheet is written to: the
+ * structure of the page the package renders, with no colour in it. A site that
+ * states one has its page load it before its own stylesheet; a site that states
+ * none keeps the one stylesheet it wrote.
+ */
+function normalizeBase(base) {
+  if (base == null) return null;
+  if (typeof base !== 'string' || !base) {
+    throw new DeclarationError('shell.base is the site path the package\'s base stylesheet is written to');
+  }
+  return base;
 }
 
 /** Plugin names — resolved against the declaration's own directory by `build`. */

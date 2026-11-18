@@ -199,6 +199,13 @@ test('a brand a declaration states wins over the manifest', () => {
   assert.equal(decl.brand.version, '1.2.3');
 });
 
+test('a declaration states no palette: the colour is the site\'s stylesheet', () => {
+  const decl = normalize({ ...DECLARATION, palette: ['#000000', '#ffffff'] },
+    { name: 'fixture.tree', version: '1.2.3', license: 'MIT' });
+  assert.equal('palette' in decl, false, 'a palette pair is not a declaration field');
+  assert.equal(decl.shell.base, null, 'and a site that states no base keeps the one stylesheet it wrote');
+});
+
 // ── References ──────────────────────────────────────────────────────────────
 
 test('an external grammar resolves every shape it declares, and its text', () => {
@@ -543,6 +550,53 @@ test('a stamp reaches the page\'s asset URLs, and only where the declaration ask
   assert.match(page, /href="assets\/style\.css\?v=abc12345"/);
   assert.match(page, /<script type="module" src="assets\/runner\.js\?v=abc12345"><\/script>/, 'esm pages load modules');
   cleanup(root);
+});
+
+test('a page whose mode is global loads classic scripts, and the block is still its config', () => {
+  const { root, parsed, link } = fixtureParsed();
+  const decl = normalize({ ...DECLARATION, mode: 'global' },
+    { name: 'fixture.tree', version: '1.2.3', license: 'MIT' });
+  const files = render(parsed, {
+    declaration: decl, brand: decl.brand, link,
+    urls: { index: 'search.json' }, config: { lib: './fixture.tree.js' }, readme: '', landing: null, stamp: '',
+  });
+  const page = files.get('mod.html');
+  assert.match(page, /<script type="application\/json" id="docs-config">/, 'the block is the page\'s config in both modes');
+  assert.match(page, /<script defer src="assets\/runner\.js"><\/script>/, 'a classic page defers classic scripts');
+  assert.doesNotMatch(page, /type="module"/);
+  assert.ok(page.indexOf('id="docs-config"') < page.indexOf('src="assets/runner.js"'),
+    'and the block comes before the scripts that read it');
+  cleanup(root);
+});
+
+test('a site that states a base stylesheet gets the package\'s, and its page loads it first', async () => {
+  const root = site(FIXTURE);
+  const decl = {
+    ...DECLARATION,
+    stamp: true,
+    shell: { base: 'assets/base.css', stylesheet: 'assets/style.css', favicon: [] },
+  };
+  await build(decl, { root, log: recorder() });
+
+  // The package's own bytes, not a copy a site could drift from.
+  assert.equal(readFileSync(join(root, 'site', 'assets/base.css'), 'utf8'),
+    readFileSync(new URL('../src/base.css', import.meta.url), 'utf8'));
+
+  const page = readFileSync(join(root, 'site', 'mod.html'), 'utf8');
+  const base = page.indexOf('href="assets/base.css');
+  const own = page.indexOf('href="assets/style.css');
+  assert.ok(base > 0 && own > base, 'the base is linked before the site\'s own file');
+  assert.match(page, /href="assets\/base\.css\?v=[0-9a-f]{8}"/, 'and it is stamped like the site\'s file');
+  cleanup(root);
+});
+
+test('the base stylesheet states the markup\'s structure and no colour', () => {
+  const css = readFileSync(new URL('../src/base.css', import.meta.url), 'utf8');
+  assert.doesNotMatch(css, /#[0-9a-fA-F]{3,8}\b/, 'no hex colour');
+  assert.doesNotMatch(css, /\b(?:rgba?|hsla?)\(/, 'no colour function');
+  for (const hook of ['.sidebar', '.theme-menu', '.pager', 'textarea.source', '.cm-editor']) {
+    assert.ok(css.includes(hook), `${hook} is the shell markup's own`);
+  }
 });
 
 // ── Build ───────────────────────────────────────────────────────────────────

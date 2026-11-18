@@ -3,8 +3,11 @@
  * declaration in, its site out, in four steps a site may also call one at a time.
  * @license AGPL-3.0-only
  *
- * The API is **unstable**: it is exported for the sibling repositories of this
- * suite, nothing is published, and it changes until a CLI rules its shape.
+ * The API is **unstable** until every site this suite serves runs on it and has
+ * been read: it is exported for the sibling repositories, nothing is published,
+ * and what a CLI would change is a separate question. The declaration is the
+ * half a site writes and the half that moves; it is stated field by field in the
+ * README.
  *
  *   parseSources({ src, carriers, surface, members, ignore })
  *     → { modules, doclets, blocks }

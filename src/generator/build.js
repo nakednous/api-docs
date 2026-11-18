@@ -42,6 +42,13 @@ const EDITOR_ASSET_RE = /^editor\.[0-9a-f]+\.js$/;
 /** The package's own root, from this file: `src/generator/` → the package. */
 const PKG_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
+/**
+ * The base stylesheet: the shell markup's structure, stated once for every site
+ * that declares `shell.base`. It carries no colour, so it is the same bytes
+ * whatever a site's palette is.
+ */
+const BASE_SHEET = fileURLToPath(new URL('../base.css', import.meta.url));
+
 const readText = (file) => (existsSync(file) ? readFileSync(file, 'utf8') : null);
 
 /**
@@ -104,6 +111,9 @@ function buildStamp(decl, at) {
   for (const file of [decl.paths.readme, decl.carrier.landing?.file].filter(Boolean)) {
     hash.update(readText(at(file)) ?? '');
   }
+  // The base stylesheet is the package's, not the site's, so a package upgrade
+  // that changes it must move the stamp the page's stylesheet URL carries.
+  if (decl.shell.base) hash.update(readFileSync(BASE_SHEET));
   return hash.digest('hex').slice(0, 8);
 }
 
@@ -300,6 +310,13 @@ export async function build(declaration, { root = process.cwd(), log = console }
     const target = join(out, file);
     mkdirSync(dirname(target), { recursive: true });
     copyFileSync(at(file), target);
+  }
+  // The shell's structure, where a site states a path for it; the page links it
+  // before the site's own stylesheet.
+  if (decl.shell.base) {
+    const target = join(out, decl.shell.base);
+    mkdirSync(dirname(target), { recursive: true });
+    copyFileSync(BASE_SHEET, target);
   }
   if (assets) {
     mkdirSync(assets, { recursive: true });

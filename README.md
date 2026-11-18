@@ -50,14 +50,13 @@ Every field is a statement about the site, never a step. The ones this package r
 | `pins` | `{ 'twgl.js': { version, script, module } }` — a CDN artifact a page loads, one version, the paths it names |
 | `references` | `packages` (name → address), `externals` (a documentation grammar: `prefix`, `base`, `url`, `text`, `exclude`), `aliases`, and `readme` (`'linked'` — the landing page's prose through the same table — or `'plain'`, as written) |
 | `home` | the address the site is served from: a README link into it must name a page and a name the build writes |
-| `mode` | `'esm'` or `'global'` — how the page loads its own scripts and hands them their config |
-| `shell` | `stylesheet`, `favicon`, `search` (the box's placeholder and label) |
+| `mode` | `'esm'` or `'global'` — how the page loads its own scripts; the JSON block is the page's config either way |
+| `shell` | `base` — the site path the package's base stylesheet is written to, when the site takes it; `stylesheet` — the site's own file, which states its colours; `favicon`; `search` (the box's placeholder and label) |
 | `runner` | `script`, `search`, `chrome`, `extra`, and `config` — the page's config block |
 | `groups`, `areas` | the teaching structure, where a site has one; a site that states none has `@group`/`@page` ignored |
 | `plugins` | the names this site's code is known by, resolved as `paths.plugins/<name>.mjs` |
 | `strict` | the finding codes that fail the build rather than print |
 | `stamp` | `true` when every site-local asset URL carries `?v=<hash>` of what ships |
-| `palette` | the site's colour pair, handed to plugins; the page's stylesheet is still the site's |
 
 ### Reference data
 
@@ -121,8 +120,10 @@ rendered so far), `emit(file, html)`, `shell(page)` and `output(name)`.
 `DeclarationError`.
 
 **The API is unstable.** It is exported for the sibling repositories of this suite, nothing has been
-published, and the shape changes until a CLI rules what the package's entry is. Pin the package and read
-this file; do not build on a signature that is not written here.
+published, and it is read by every site of the suite before either half is promised: until then the shape
+moves, and the declaration — the half a site writes — is where it has moved. A CLI would change what the
+package's entry is, which is a separate question from this one. Pin the package and read this file; do not
+build on a signature that is not written here.
 
 `build` is the whole pipeline: parse → validate → render → write. The three steps are exported beside it
 because a site's own tool may want the tables without a site — a parity run does.
@@ -150,6 +151,20 @@ the shell every page is wrapped in — the theme boot, the picker, the rail, the
 `build` writes the site beside the builds of the same commit, copies the static chrome and any pinned
 dependency build, copies the editor's content-hashed asset and its notices, keeps every earlier editor
 asset an older page may still ask for, and resolves every reference it wrote against the files on disk.
+
+**The page's head is one contract.** The theme boot, the title, the favicons, the stylesheets, then one
+`<script type="application/json" id="docs-config">` block, then the site's own scripts — `type="module"`
+when `mode` is `'esm'`, classic `defer` scripts when it is `'global'`. The block is the page's config
+either way, and its contents are `runner.config` with the `{tokens}` resolved; a classic page reads it by
+that id instead of writing a global of its own, so `mode` decides how the scripts load and nothing else.
+
+**The stylesheets.** `shell.base` is where the package's base stylesheet is written, and a page that
+states one loads it before the site's own file. The base is the structure of this markup — the grid, the
+rail, the picker, the search box, the doclet tables, the example figure, the editor's surface — and it
+states no colour: a site's own stylesheet states the colour tokens (`--bg`, `--bg-2`, `--fg`, `--muted`,
+`--border`, `--accent`, `--accent-ink`, `--accent-2`, `--stage`, the `--cm-*` roles) and overrides the
+type where its page's code is not the base's. A site that states no `shell.base` keeps the one stylesheet
+it wrote.
 
 ## The editor
 

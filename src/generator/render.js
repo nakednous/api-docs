@@ -162,6 +162,10 @@ export function shell(state, { title, active, body, nav, pager = '' }) {
   const attrs = decl.mode === 'esm' ? 'type="module"' : 'defer';
   const icon = (f) => `<link rel="icon" sizes="${f.sizes}" href="${v(f.href)}">`;
   const icons = decl.shell.favicon.map(icon).join('\n  ');
+  // The package's base first, where a site states one: it is the structure of
+  // this markup, and the site's own file overrides its variables.
+  const sheets = [decl.shell.base, decl.shell.stylesheet]
+    .filter(Boolean).map((href) => `<link rel="stylesheet" href="${v(href)}">`).join('\n  ');
   const footer = `${esc(brand.name)} v${esc(brand.version)} · ${esc(brand.license ?? '')}` +
     (urls.notices ? ` ·\n      <a href="${v(urls.notices)}">third-party notices</a>` : '');
   return `<!doctype html>
@@ -171,7 +175,7 @@ export function shell(state, { title, active, body, nav, pager = '' }) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <script>${boot}</script>
   <title>${esc(title)} — ${esc(brand.name)}</title>
-  ${icons ? `${icons}\n  ` : ''}<link rel="stylesheet" href="${v(decl.shell.stylesheet)}">
+  ${icons ? `${icons}\n  ` : ''}${sheets}
   <script type="application/json" id="docs-config">${json}</script>
   ${scripts.map((src) => `<script ${attrs} src="${v(src)}"></script>`).join('\n  ')}
 </head>
