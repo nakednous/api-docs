@@ -127,6 +127,22 @@ test('@ignore is kept for a coverage check, or dropped', () => {
   cleanup(root);
 });
 
+test('a leading _ is private, unless the site documents its underscored names', () => {
+  const source = [
+    block(['@module one']),
+    block(['@constant {number[]} _i', '@memberof one', 'A basis vector.']),
+    'export const _i = CONST(1)',
+    block(['@constant {number[]} j', '@memberof one', 'A basis vector.']),
+    'export const j = CONST(2)',
+  ].join('\n');
+  const root = site({ 'src/one.js': source });
+  const skipped = parseSources({ src: join(root, 'src') });
+  assert.deepEqual(skipped.doclets.map((d) => d.name), ['j'], 'an underscored name is not public surface');
+  const kept = parseSources({ src: join(root, 'src'), private: 'keep' });
+  assert.deepEqual(kept.doclets.map((d) => d.name), ['_i', 'j'], 'a site may document its underscored names');
+  cleanup(root);
+});
+
 test('carrier files are public by declaration and marked reexport', () => {
   const root = site({
     'src/one.js': [block(['@module one']), block(['An export.']), 'export function alpha() {}'].join('\n'),

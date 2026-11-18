@@ -192,6 +192,9 @@ export async function build(declaration, { root = process.cwd(), log = console }
   for (const [name, file] of Object.entries(decl.paths.deps)) {
     if (!existsSync(at(file))) throw new DeclarationError(`${file} not found — ${name} is not installed.`);
   }
+  for (const file of decl.paths.readmeAssets) {
+    if (!existsSync(at(file))) throw new DeclarationError(`${file} is declared as a README asset and is not there`);
+  }
 
   // The site's plugins, by name: they are the one place its code runs here.
   const plugins = await loadPlugins(decl, at);
@@ -203,6 +206,7 @@ export async function build(declaration, { root = process.cwd(), log = console }
     surface: decl.parse.surface,
     members: decl.parse.members,
     ignore: decl.parse.ignore,
+    private: decl.parse.private,
   });
   const surfaceFile = decl.surface?.module ? decl.paths.module : decl.paths.bundle;
   const built = decl.surface && surfaceFile
@@ -213,6 +217,7 @@ export async function build(declaration, { root = process.cwd(), log = console }
     parsed,
     references: decl.references,
     namespaces: decl.namespaces,
+    ownerOrder: decl.ownerOrder,
     brand: decl.brand.name,
   });
 
@@ -289,6 +294,13 @@ export async function build(declaration, { root = process.cwd(), log = console }
   }
   if (urls.bundle) copyFileSync(at(decl.paths.bundle), join(out, urls.bundle));
   if (urls.module) copyFileSync(at(decl.paths.module), join(out, urls.module));
+  // The README's own relative references, at the site-relative path it writes
+  // them at: a landing page that points at `hero.png` beside it finds it there.
+  for (const file of decl.paths.readmeAssets) {
+    const target = join(out, file);
+    mkdirSync(dirname(target), { recursive: true });
+    copyFileSync(at(file), target);
+  }
   if (assets) {
     mkdirSync(assets, { recursive: true });
     copyFileSync(editor.file, join(assets, editor.url));

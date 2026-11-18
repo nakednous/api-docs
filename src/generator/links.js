@@ -75,28 +75,38 @@ export function hrefOf(entry, references) {
 }
 
 /**
- * The table: `owner.name`, bare `name` (first wins), module names, and the
- * declared aliases (a class name that links to the factory making it).
+ * The table: `owner.name`, bare `name` (first wins, an owner the declaration
+ * puts first winning over all), module names, and the declared aliases (a class
+ * name that links to the factory making it).
  */
-export function linkTable({ modules, doclets }, references = {}) {
+export function linkTable({ modules, doclets }, references = {}, ownerOrder = []) {
   const table = new Map();
   for (const m of modules) table.set(m.name, { module: m });
   for (const d of doclets) table.set(`${d.owner}.${d.name}`, { doclet: d });
   for (const d of doclets) if (!table.has(d.name)) table.set(d.name, { doclet: d });
+  for (const owner of ownerOrder) {
+    for (const d of doclets) if (d.owner === owner) table.set(d.name, { doclet: d });
+  }
   for (const [alias, name] of Object.entries(references.aliases ?? {})) {
     if (!table.has(alias) && table.has(name)) table.set(alias, table.get(name));
   }
   return table;
 }
 
-/** Bare names several owners share: auto-links leave them alone. */
-export function ambiguousNames(doclets) {
+/**
+ * Bare names several owners share: auto-links leave them alone. A name one of
+ * the owners the declaration puts first documents is not ambiguous — it is that
+ * owner's, wherever the page sits.
+ */
+export function ambiguousNames(doclets, ownerOrder = []) {
   const owners = new Map();
   for (const d of doclets) {
     if (!owners.has(d.name)) owners.set(d.name, new Set());
     owners.get(d.name).add(d.owner);
   }
-  return new Set([...owners].filter(([, s]) => s.size > 1).map(([n]) => n));
+  return new Set([...owners]
+    .filter(([, s]) => s.size > 1 && !ownerOrder.some((o) => s.has(o)))
+    .map(([n]) => n));
 }
 
 /**
@@ -127,11 +137,12 @@ export function indexOwners(doclets, ambiguous, prefix) {
  * @param {{ modules: Object[], doclets: Object[] }} options.parsed
  * @param {Object} options.references  the declaration's reference data
  * @param {string[]} [options.namespaces]  owners written as a prefix in signatures
+ * @param {string[]} [options.ownerOrder]  the owners a bare name prefers, in order
  * @param {string} [options.brand]  the site's name, whose modules the landing page prefers
  */
-export function linker({ parsed, references = {}, namespaces = [], brand = '' }) {
-  const table = linkTable(parsed, references);
-  const ambiguous = ambiguousNames(parsed.doclets);
+export function linker({ parsed, references = {}, namespaces = [], ownerOrder = [], brand = '' }) {
+  const table = linkTable(parsed, references, ownerOrder);
+  const ambiguous = ambiguousNames(parsed.doclets, ownerOrder);
   const prefer = indexOwners(parsed.doclets, ambiguous, `${brand}/`);
   const scanners = packageScanners(references);
 

@@ -19,8 +19,11 @@
  * and a one-segment member takes a different template when the declaration
  * singles it out: `url.pages` (a member documented on a page of its own) wins
  * over `url.namespaces` (a list) which wins over `url.classes` (a pattern).
- * `{member}`, `{ns}` and `{name}` are the substitutions; `{name}` is the whole
- * name as written, which is what a link's text usually reads.
+ * `{member}`, `{ns}`, `{name}` and `{rest}` are the substitutions: the last
+ * segment, the first one, the whole name as written, and the name without the
+ * prefix — which is what a link's text reads when a site qualifies its names in
+ * prose but not in the link. A name with a segment `exclude` lists is not this
+ * grammar's (an addon's own namespace, say).
  */
 
 /** Fill a declared template's `{member}` / `{ns}` / `{name}`, and leave anything else alone. */
@@ -56,11 +59,14 @@ export function externalRef(references, name) {
   if (!parts.every((part) => SEGMENT.test(part))) return null;
   for (const ext of references?.externals ?? []) {
     if (parts[0] !== ext.prefix || parts.length < 2 || parts.length > 3) continue;
+    const rest = parts.slice(1);
+    // A name the grammar does not claim — the prefix's own namespace, say.
+    if (rest.some((part) => (ext.exclude ?? []).includes(part))) continue;
     const member = parts[parts.length - 1];
     const ns = parts.length === 3 ? parts[1] : '';
     const template = parts.length === 3 ? ext.url?.qualified : oneSegment(ext.url ?? {}, member);
     if (!template) return null;
-    const vars = { member, ns, name };
+    const vars = { member, ns, name, rest: rest.join('.') };
     return { url: `${ext.base ?? ''}${fill(template, vars)}`, text: fill(ext.text ?? '{name}', vars) };
   }
   return null;

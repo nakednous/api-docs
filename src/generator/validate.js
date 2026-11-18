@@ -21,6 +21,7 @@ import { splitFences } from './markdown.js';
 
 const LINK_RE = /\{@link\s+([^}\s]+)\s*\}/g;
 const MODULE_SYNTAX_RE = /^\s*(import|export)\b|\bimport\s*\(|\bawait\b/m;
+const SETUP_RE = /(^|[^\w$])(?:async\s+)?function\s+setup\s*\(/;
 
 function* fields(rows) {
   for (const r of rows) { yield r; yield* fields(r.children); }
@@ -78,7 +79,9 @@ export function validate(parsed, ctx) {
   for (const e of ctx.surfaceErrors ?? []) findings.push({ level: 'error', code: 'surface', text: e });
 
   // Vocabulary — public blocks and module headers only; internal blocks are not
-  // the site's prose and are not policed.
+  // the site's prose and are not policed. A site that states its own closed set
+  // is held to it, not to the package's union.
+  const vocabulary = decl.parse.vocabulary ? new Set(decl.parse.vocabulary) : VOCABULARY;
   for (const b of blocks) {
     if (!b.public && !b.module) {
       if (b.tags.includes('memberof') || b.tags.includes('example')) {
@@ -87,7 +90,7 @@ export function validate(parsed, ctx) {
       continue;
     }
     for (const t of b.tags) {
-      if (!VOCABULARY.has(t)) fail(b, 'vocabulary', `tag @${t} is outside the vocabulary`);
+      if (!vocabulary.has(t)) fail(b, 'vocabulary', `tag @${t} is outside the vocabulary`);
     }
   }
 
@@ -143,7 +146,8 @@ export function validate(parsed, ctx) {
     }
   }
 
-  // Examples — the site's own rule, declared: their syntax, the global they read.
+  // Examples — the site's own rule, declared: their syntax, the global they
+  // read, whether one is required, and whether every one is a complete sketch.
   const ex = decl.examples;
   for (const d of doclets) {
     d.examples.forEach((example, i) => {
@@ -152,6 +156,9 @@ export function validate(parsed, ctx) {
       } else if (ex.global && !new RegExp(`=\\s*${ex.global}\\b`).test(example.code)) {
         fail(d, 'example', `@example #${i + 1} of ${d.name} does not read the ${ex.global} global`);
       }
+      if (ex.setup && !SETUP_RE.test(example.code)) {
+        fail(d, 'example', `@example #${i + 1} of ${d.name} does not define setup()`);
+      }
     });
     if (ex.required && d.kind === 'function' && d.examples.length === 0) {
       warn(d, 'example', `${d.owner}.${d.name} has no @example`);
@@ -159,18 +166,29 @@ export function validate(parsed, ctx) {
   }
 
   // The surface — every documented name is in the build, and a function's
-  // parameters are the ones its source declares.
+  // parameters are the ones its source declares. An owner the declaration maps
+  // to `null` is documented and not statically reachable, so it is not checked.
   if (decl.surface && api) {
     for (const d of doclets) {
       if (decl.surface.check === 'reexports' && !d.reexport) continue;
       if (d.ignore) continue;
+      if (!Object.hasOwn(decl.owners, d.owner)) {
+        fail(d, 'surface', `owner ${d.owner} of ${d.name} is not in the build`);
+        continue;
+      }
+      if (decl.owners[d.owner] === null) continue;
       const scope = ownerScope(api, decl.owners, d.owner);
       if (!scope) { fail(d, 'surface', `owner ${d.owner} of ${d.name} is not in the build`); continue; }
       if (!scope.has(d.name)) { fail(d, 'surface', `${d.owner}.${d.name} is not in the build`); continue; }
       if (d.kind !== 'function') continue;
       const built = scope.params(d.name);
       const documented = d.params.map((p) => p.name);
-      if (built.length !== documented.length || built.some((n, i) => n !== null && n !== documented[i])) {
+      // A rest parameter opens the list: the document's own parameters are the
+      // call's, and only the ones the source declares before `...` are compared.
+      const rest = built.findIndex((n) => typeof n === 'string' && n.startsWith('...'));
+      const fixed = rest < 0 ? built : built.slice(0, rest);
+      const sameLength = rest < 0 ? fixed.length === documented.length : fixed.length <= documented.length;
+      if (!sameLength || fixed.some((n, i) => n !== null && n !== documented[i])) {
         fail(d, 'surface', `${d.owner}.${d.name}(${documented.join(', ')}) does not match the build's (${built.map((n) => n ?? '{…}').join(', ')})`);
       }
     }

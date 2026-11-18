@@ -12,6 +12,8 @@
  *     declarations and only the names it re-exports are public.
  *   - `@ignore` either keeps the block out of the site and visible to a coverage
  *     check (`ignore: 'keep'`) or drops it (`ignore: 'skip'`).
+ *   - A leading `_` marks a name private and keeps it off the site, unless the
+ *     site documents its underscored names (`private: 'keep'`).
  *   - Carrier files (`carriers: [dirs]`) are documentation-only: every doclet in
  *     them is public and marked `reexport`, so a validator can check it against
  *     the build.
@@ -252,9 +254,11 @@ function parseFile(dir, file, { members }) {
 }
 
 /** The `[from, to]` doclet table after the two merges, for one file. */
-function mergeSurfaces(doclets) {
-  // The constructor and private members are not public surface.
-  let out = doclets.filter((d) => d.name !== 'constructor' && !d.name.startsWith('_'));
+function mergeSurfaces(doclets, { private: privateRule }) {
+  // The constructor and private members are not public surface — unless the
+  // site documents its underscored names on purpose (`private: 'keep'`).
+  let out = doclets.filter((d) => d.name !== 'constructor' &&
+    (privateRule === 'keep' || !d.name.startsWith('_')));
 
   // Accessor pairs are one surface: the setter joins the getter.
   for (const d of out) {
@@ -324,9 +328,12 @@ const jsFiles = (dir) => readdirSync(dir).filter((f) => f.endsWith('.js'))
  * @param {boolean} [options.surface]     gate publicity on `src/index.js`'s re-exports
  * @param {string|null} [options.members] class whose indented members are public
  * @param {'keep'|'skip'} [options.ignore] what an `@ignore` block does
+ * @param {'keep'|'skip'} [options.private] what a leading `_` on a member or constant means
  * @returns {{ modules: Object[], doclets: Object[], blocks: Object[] }}
  */
-export function parseSources({ src, carriers = [], surface = false, members = null, ignore = 'keep' }) {
+export function parseSources({
+  src, carriers = [], surface = false, members = null, ignore = 'keep', private: privateRule = 'skip',
+}) {
   const modules = [], doclets = [], blocks = [];
   const names = surface ? surfaceOf(src) : null;
 
@@ -346,7 +353,7 @@ export function parseSources({ src, carriers = [], surface = false, members = nu
       b.doclet.reexport = reexport;
       kept.push(b.doclet);
     }
-    for (const d of mergeSurfaces(kept)) doclets.push(d);
+    for (const d of mergeSurfaces(kept, { private: privateRule })) doclets.push(d);
   };
 
   for (const file of jsFiles(src)) collect(src, file, false);

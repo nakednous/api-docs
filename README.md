@@ -37,17 +37,18 @@ Every field is a statement about the site, never a step. The ones this package r
 
 | field | what it states |
 |---|---|
-| `paths` | `pkg`, `readme`, `src`, `bundle`, `module`, `deps`, `static`, `plugins`, `site` — repo-relative |
+| `paths` | `pkg`, `readme`, `src`, `bundle`, `module`, `deps`, `static`, `plugins`, `site` — repo-relative; `readmeAssets` — files the README names relatively, copied to the same site-relative path |
 | `outputs` | `bundle`, `module`, `deps`, `index`, `editor`, `notices` — what the build writes, as the page names it |
 | `brand` | `name`, `version`, `license`; each defaults to the package manifest, and a stated version that disagrees with it is the site's problem, not a build fact |
 | `carrier` | `docs`: documentation-only sources the parser reads; `landing`: a Markdown file rendered as a section of the landing page, its one `js` fence a live module demo (`{ file, section, id }`) |
-| `parse` | `surface` (gate on `src/index.js`'s re-exports), `members` (the class whose indented members are public), `ignore` (`'skip'` drops an `@ignore` block, `'keep'` keeps it for a coverage check) |
-| `examples` | `syntax` (`'global'` — classic scripts, `'module'`, `'any'`), `global` (the global an example must read), `required` (a function with no `@example` is a warning) |
-| `surface` | `global` (the name the IIFE leaves behind) or `module: true` (the ES build at `paths.module`, imported), `globals` (what that build reads at load), `check` (`'reexports'` — the documentation-only carriers only — or `'all'`) |
-| `owners` | where each owner lives in the build: a path from the surface, or `path()` for the object literal a factory returns |
+| `parse` | `surface` (gate on `src/index.js`'s re-exports), `members` (the class whose indented members are public), `ignore` (`'skip'` drops an `@ignore` block, `'keep'` keeps it for a coverage check), `private` (`'skip'` keeps a leading `_` off the site, `'keep'` documents it) |
+| `examples` | `syntax` (`'global'` — classic scripts, `'module'`, `'any'`), `global` (the global an example must read), `required` (a function with no `@example` is a warning), `setup` (every example defines `setup()`) |
+| `surface` | `global` (the name the IIFE leaves behind, or the host global it installs onto) or `module: true` (the ES build at `paths.module`, imported), `globals` (what that build reads at load), `check` (`'reexports'` — the documentation-only carriers only — or `'all'`) |
+| `owners` | where each owner lives in the build: a path from the surface, a list of paths when one owner's names sit in several places, `path()` for the object a factory returns (its methods defined in the factory's body or attached to the result), or `null` for an owner that is documented and not statically reachable |
+| `ownerOrder` | the owners a page puts first, in order; a bare name several owners share resolves to the first of them |
 | `namespaces` | owners written as a prefix in signatures (`tree.mat4Mul`) |
 | `pins` | `{ 'twgl.js': { version, script, module } }` — a CDN artifact a page loads, one version, the paths it names |
-| `references` | `packages` (name → address), `externals` (a documentation grammar: `prefix`, `base`, `url`, `text`), `aliases` |
+| `references` | `packages` (name → address), `externals` (a documentation grammar: `prefix`, `base`, `url`, `text`, `exclude`), `aliases`, and `readme` (`'linked'` — the landing page's prose through the same table — or `'plain'`, as written) |
 | `home` | the address the site is served from: a README link into it must name a page and a name the build writes |
 | `mode` | `'esm'` or `'global'` — how the page loads its own scripts and hands them their config |
 | `shell` | `stylesheet`, `favicon`, `search` (the box's placeholder and label) |
@@ -75,16 +76,19 @@ references: {
       namespace: 'module-twgl_{member}.html',       // a one-segment name that is a namespace
       namespaces: ['m4', 'v3', 'primitives'],
       classes: '^[A-Z][a-z]',                       // a one-segment name that is a class
-      class: 'p5/p5.{member}/',
+      class: 'class-{member}.html',
       pages: { setTextureFromElement: 'module-twgl_textures.html#.{member}' },   // its own page
     },
-    text: '{member}',                    // how the link reads; `{name}` is the name as written
+    exclude: ['Own'],                    // a segment the grammar does not claim: an addon's namespace
+    text: '{rest}',                      // how the link reads; `{name}` is the name as written
   }],
 }
 ```
 
-`{member}`, `{ns}` and `{name}` are the substitutions. A name is the prefix alone (not a name), the
+`{member}`, `{ns}`, `{name}` and `{rest}` are the substitutions: the last segment, the first one, the
+whole name as written, and the name without the prefix. A name is the prefix alone (not a name), the
 prefix plus one segment (takes `pages` → `namespaces` → `classes` → `one`), or two (takes `qualified`).
+A name any of whose segments an `exclude` lists is not that grammar's.
 
 A `resolve(name)` hook does not exist: a scheme this table cannot express is a defect to report, not a
 hook to add quietly.
@@ -128,12 +132,13 @@ because a site's own tool may want the tables without a site — a parity run do
 Source files plus any documentation-only carrier files in, one module table and one doclet table out.
 The union of the rules the sites state today, each chosen by an option: `surface` gates publicity on
 `src/index.js`'s re-exports, `members` names the class whose indented members are public, `ignore` says
-whether an `@ignore` block is kept for a coverage check or dropped, `carriers` lists the
-documentation-only directories.
+whether an `@ignore` block is kept for a coverage check or dropped, `private` says what a leading `_`
+means, `carriers` lists the documentation-only directories.
 
 ### validate
 
-The documented surface against the built IIFE or the module's exports, the examples against the site's
+The documented surface against the built IIFE or the module's exports (a rest parameter opens the list,
+so only the parameters the source declares before `...` are compared), the examples against the site's
 own rule, every `{@link}` against the name table, and the README's own links against the pages and names
 the build writes. Errors stop a build; warnings print; a code in `strict` fails it. A plugin's
 `validate` runs last.

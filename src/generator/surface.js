@@ -5,10 +5,12 @@
  * @license AGPL-3.0-only
  *
  * An IIFE is evaluated once in a function scope and the name it leaves behind
- * is what the pages read; an ES build is imported and its namespace is that
- * same object. Either way the walk is the same: a path from that object, as the
- * declaration's `owners` states it, and `path()` for the object literal a
- * factory returns (whose methods are read off the factory's source).
+ * — or the host global it installs onto — is what the pages read; an ES build
+ * is imported and its namespace is that same object. Either way the walk is the
+ * same: a path from that object, as the declaration's `owners` states it (one
+ * path, or several when an owner's names sit in more than one place), and
+ * `path()` for the object a factory returns, whose methods are read off the
+ * factory's source.
  */
 
 import { readFileSync } from 'node:fs';
@@ -36,8 +38,10 @@ export function paramNames(src) {
   }
   if (cur.trim()) out.push(cur);
   return out.map((p) => {
-    const name = p.trim().replace(/^\.\.\./, '');
-    return /^[{[]/.test(name) ? null : name.split('=')[0].trim();
+    const raw = p.trim();
+    const name = raw.replace(/^\.\.\./, '').split('=')[0].trim();
+    if (/^[{[]/.test(name)) return null;
+    return raw.startsWith('...') ? `...${name}` : name;   // an open list, kept visible
   });
 }
 
@@ -51,23 +55,21 @@ function descriptorOf(obj, name) {
 }
 
 /**
- * An owner's members in the build, per the declared `owners` path: `has(name)`
- * and `params(name)`. Null when the owner is not declared or not in the build.
- * @param {Object} api  the evaluated global or the imported namespace
- * @param {Object<string, string>} owners
- * @param {string} owner
+ * One declared path, read off the api: the members `has(name)` and the
+ * parameters `params(name)` of an object, or of the object literal a factory
+ * returns (read off the factory's source).
  * @returns {{ has: (name: string) => boolean, params: (name: string) => Array<string|null> }|null}
  */
-export function ownerScope(api, owners, owner) {
-  const path = owners?.[owner];
-  if (!path) return null;
+function scopeAt(api, path) {
   const factory = path.endsWith('()');
   const target = (factory ? path.slice(0, -2) : path).split('.')
     .reduce((o, k) => (o == null ? o : o[k]), api);
   if (target == null) return null;
   if (factory) {
     const src = String(target);
-    const at = (name) => src.search(new RegExp(`[\\s,{](?:get\\s+)?${name}\\s*\\(`));
+    // A member the factory defines in its body (`name(a, b) {`), or attaches to
+    // the object it returns (`result.name = function (a, b) {}`).
+    const at = (name) => src.search(new RegExp(`[\\s,{](?:get\\s+)?${name}\\s*\\(|\\.${name}\\s*=`));
     return {
       has: (name) => at(name) >= 0,
       params: (name) => paramNames(src.slice(at(name) + 1).replace(/^get\s+/, '')),
@@ -79,6 +81,28 @@ export function ownerScope(api, owners, owner) {
       const d = descriptorOf(target, name);
       return d && typeof d.value === 'function' ? paramNames(String(d.value)) : [];
     },
+  };
+}
+
+/**
+ * An owner's members in the build, per the declared `owners` entry: one path
+ * from the surface, or several when the build hosts the owner's names in more
+ * than one place (a class whose methods split between two prototypes).
+ * @param {Object} api  the evaluated global or the imported namespace
+ * @param {Object<string, string|string[]|null>} owners
+ * @param {string} owner
+ * @returns {{ has: (name: string) => boolean, params: (name: string) => Array<string|null> }|null}
+ *   null when the owner is not declared, declared `null`, or not in the build
+ */
+export function ownerScope(api, owners, owner) {
+  const spec = owners?.[owner];
+  if (spec == null) return null;
+  const scopes = (Array.isArray(spec) ? spec : [spec]).map((p) => scopeAt(api, p)).filter(Boolean);
+  if (!scopes.length) return null;
+  if (scopes.length === 1) return scopes[0];
+  return {
+    has: (name) => scopes.some((s) => s.has(name)),
+    params: (name) => scopes.find((s) => s.has(name))?.params(name) ?? [],
   };
 }
 

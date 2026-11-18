@@ -161,6 +161,7 @@ export function shell(state, { title, active, body, nav, pager = '' }) {
   ].filter(Boolean);
   const attrs = decl.mode === 'esm' ? 'type="module"' : 'defer';
   const icon = (f) => `<link rel="icon" sizes="${f.sizes}" href="${v(f.href)}">`;
+  const icons = decl.shell.favicon.map(icon).join('\n  ');
   const footer = `${esc(brand.name)} v${esc(brand.version)} · ${esc(brand.license ?? '')}` +
     (urls.notices ? ` ·\n      <a href="${v(urls.notices)}">third-party notices</a>` : '');
   return `<!doctype html>
@@ -170,8 +171,7 @@ export function shell(state, { title, active, body, nav, pager = '' }) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <script>${boot}</script>
   <title>${esc(title)} — ${esc(brand.name)}</title>
-  ${decl.shell.favicon.map(icon).join('\n  ')}
-  <link rel="stylesheet" href="${v(decl.shell.stylesheet)}">
+  ${icons ? `${icons}\n  ` : ''}<link rel="stylesheet" href="${v(decl.shell.stylesheet)}">
   <script type="application/json" id="docs-config">${json}</script>
   ${scripts.map((src) => `<script ${attrs} src="${v(src)}"></script>`).join('\n  ')}
 </head>
@@ -257,9 +257,12 @@ export function render(parsed, state) {
   pages.set(decl.outputs.index, JSON.stringify(searchIndex(parsed.doclets)));
 
   const landing = decl.carrier.landing ? landingSection(state.landing ?? '', decl.carrier.landing) : '';
+  const readme = marked.parse(
+    decl.references.readme === 'plain' ? (state.readme ?? '') : link.resolve(state.readme ?? '', true),
+  );
   pages.set('index.html', shell(state, {
     title: 'README', active: 'index.html', nav,
-    body: `    <article class="readme">${marked.parse(link.resolve(state.readme ?? '', true))}</article>\n${landing}`,
+    body: `    <article class="readme">${readme}</article>${landing ? `\n${landing}` : ''}`,
   }));
 
   const pagerOf = (i) => {
@@ -275,8 +278,14 @@ export function render(parsed, state) {
 
   modules.forEach((m, i) => {
     const list = byModule.get(m.name);
-    // Owners in order of first appearance.
-    const owners = [...new Set(list.map((d) => d.owner))];
+    // Owners in order of first appearance, the ones the declaration puts first
+    // ahead of them all.
+    const owners = [...new Set(list.map((d) => d.owner))]
+      .sort((a, b) => rank(a) - rank(b));
+    function rank(owner) {
+      const at = decl.ownerOrder.indexOf(owner);
+      return at < 0 ? decl.ownerOrder.length : at;
+    }
     const body = `
     <header class="module">
       <h1>${esc(m.name)}</h1>

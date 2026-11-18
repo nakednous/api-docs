@@ -215,6 +215,20 @@ test('an external grammar resolves every shape it declares, and its text', () =>
   assert.equal(of('other.one'), null, 'another library is not this grammar\'s');
 });
 
+test('an external grammar leaves an excluded name alone, and {rest} drops the prefix from a link\'s text', () => {
+  const refs = { externals: [{
+    prefix: 'lib',
+    base: 'https://lib.test/',
+    url: { qualified: 'ns/{ns}/{member}', one: 'one/{member}' },
+    exclude: ['Own'],
+    text: '{rest}',
+  }] };
+  assert.equal(externalRef(refs, 'lib.Own'), null, 'a name the grammar excludes');
+  assert.equal(externalRef(refs, 'lib.Own.member'), null, 'and one under an excluded namespace');
+  assert.deepEqual(externalRef(refs, 'lib.one'), { url: 'https://lib.test/one/one', text: 'one' });
+  assert.deepEqual(externalRef(refs, 'lib.Ns.member'), { url: 'https://lib.test/ns/Ns/member', text: 'Ns.member' });
+});
+
 test('a package resolves to the address the declaration states, or not at all', () => {
   assert.equal(packageUrl(DECLARATION.references, 'fixture.tree'), 'https://example.test/repo');
   assert.equal(packageUrl(DECLARATION.references, 'nope'), null);
@@ -250,6 +264,26 @@ test('a name several owners share stays plain unless the landing page prefers on
   const link = linker({ parsed, references: {}, brand: 'fixture' });
   assert.match(link.mdInline('`alpha`'), /^<code>alpha<\/code>$/, 'ambiguous on a page');
   assert.match(link.mdInline('`alpha`', { prefer: true }), /href="mod.html#fixture\/mod.alpha"/, 'the landing page prefers the site\'s own module');
+  cleanup(root);
+});
+
+test('an owner the declaration puts first wins a bare name on every page', () => {
+  const root = site({
+    ...FIXTURE,
+    'src/two.js': [
+      block(['@file Two', '@module fixture/two', '@license MIT']),
+      block(['Alpha again, on the sketch owner.', '@function alpha', '@memberof Other']),
+      'export function alpha() {}',
+      '',
+    ].join('\n'),
+  });
+  const parsed = parseSources({ src: join(root, 'src'), carriers: [join(root, 'docs')], ignore: 'keep' });
+  const plain = linker({ parsed, references: {}, brand: 'fixture.tree' });
+  assert.match(plain.mdInline('`alpha`'), /^<code>alpha<\/code>$/, 'ambiguous name, plain code');
+  assert.equal(plain.table.get('alpha').doclet.owner, 'fixture/mod', 'first doclet wins');
+  const ordered = linker({ parsed, references: {}, ownerOrder: ['Other'], brand: 'fixture.tree' });
+  assert.equal(ordered.table.get('alpha').doclet.owner, 'Other', 'the declared owner wins the bare name');
+  assert.match(ordered.mdInline('`alpha`'), /two\.html#Other\.alpha/, 'and the name earns its link');
   cleanup(root);
 });
 
@@ -324,6 +358,26 @@ test('an example that uses module syntax, or misses the global, fails the build'
   cleanup(root);
 });
 
+test('a site may require every example to define setup()', () => {
+  const { root, parsed, link } = fixtureParsed();
+  const decl = normalize({ ...DECLARATION, examples: { ...DECLARATION.examples, setup: true } },
+    { name: 'fixture.tree', version: '1.2.3', license: 'MIT' });
+  const out = validate(parsed, { declaration: decl, readme: readmeOf(root), link });
+  assert.equal(out.errors.length, 2, out.errors.join('\n'));
+  assert.match(out.errors.join('\n'), /@example #1 of alpha does not define setup\(\)/);
+  cleanup(root);
+
+  const sketching = {
+    ...FIXTURE,
+    'src/mod.js': FIXTURE['src/mod.js'].replace('const n = fixtureTree.mod.alpha(1, 2)', 'function setup() {\n  const n = fixtureTree.mod.alpha(1, 2)\n}'),
+    'docs/carrier.js': FIXTURE['docs/carrier.js'].replace('const n = fixtureTree.mod.beta(2, 3)', 'function setup() {\n  const n = fixtureTree.mod.beta(2, 3)\n}'),
+  };
+  const good = fixtureParsed(sketching);
+  const ok = validate(good.parsed, { declaration: decl, readme: readmeOf(good.root), link: good.link });
+  assert.deepEqual(ok.errors, []);
+  cleanup(good.root);
+});
+
 test('a strict code turns a warning into a failed build', () => {
   const tree = {
     ...FIXTURE,
@@ -353,6 +407,26 @@ test('the README\'s own links must name a page this build writes and a name it d
   });
   assert.match(out.errors.join('\n'), /docs\/gone\.html is no page in this build/);
   assert.match(out.errors.join('\n'), /mod\.html#fixture\/mod\.nope is no documented name/);
+  cleanup(root);
+});
+
+test('a site\'s own closed vocabulary is what its blocks are held to', () => {
+  const tree = {
+    ...FIXTURE,
+    'src/mod.js': FIXTURE['src/mod.js'].replace(' * @returns {number} The sum.',
+      ' * @returns {number} The sum.\n * @group fixture'),
+  };
+  const { root, parsed, link } = fixtureParsed(tree);
+  const pkg = { name: 'fixture.tree', version: '1.2.3', license: 'MIT' };
+  const union = validate(parsed, { declaration: normalize(DECLARATION, pkg), readme: readmeOf(root), link });
+  assert.deepEqual(union.errors, [], 'the package reads @group where a site states no set');
+  const closed = normalize({
+    ...DECLARATION,
+    parse: { ...DECLARATION.parse, vocabulary: ['file', 'module', 'license', 'function', 'param', 'returns', 'example'] },
+  }, pkg);
+  const out = validate(parsed, { declaration: closed, readme: readmeOf(root), link });
+  assert.match(out.errors.join('\n'), /tag @group is outside the vocabulary/);
+  assert.throws(() => normalize({ ...DECLARATION, parse: { vocabulary: ['nonsense'] } }, pkg), DeclarationError);
   cleanup(root);
 });
 
@@ -401,6 +475,32 @@ test('the renderer writes a page per module, the landing page, and the search in
   const search = JSON.parse(files.get('search.json'));
   assert.deepEqual(search.map((e) => e.n).sort(), ['alpha', 'beta']);
   assert.equal(search.find((e) => e.n === 'alpha').h, 'mod.html#fixture/mod.alpha');
+  cleanup(root);
+});
+
+test('a page opens with the owners the declaration puts first, then first appearance; no favicon, no blank line', () => {
+  const root = site({
+    ...FIXTURE,
+    'src/two.js': [
+      block(['@file Two', '@module fixture/two', '@license MIT']),
+      block(['@function slow', '@memberof Later', 'Second.']),
+      block(['@function quick', '@memberof First', 'First.']),
+      'export function slow() {}',
+      'export function quick() {}',
+      '',
+    ].join('\n'),
+  });
+  const parsed = parseSources({ src: join(root, 'src'), carriers: [join(root, 'docs')], ignore: 'keep' });
+  const link = linker({ parsed, references: {}, brand: 'fixture.tree' });
+  const decl = normalize({ ...DECLARATION, ownerOrder: ['First'], shell: { stylesheet: 'assets/style.css', favicon: [] } },
+    { name: 'fixture.tree', version: '1.2.3', license: 'MIT' });
+  const files = render(parsed, {
+    declaration: decl, brand: decl.brand, link,
+    urls: { index: 'search.json' }, config: {}, readme: '', landing: null, stamp: '',
+  });
+  const page = files.get('two.html');
+  assert.deepEqual([...page.matchAll(/<section class="owner" id="([^"]+)">/g)].map((m) => m[1]), ['First', 'Later']);
+  assert.match(page, /\n  <link rel="stylesheet"/, 'no favicon leaves no empty line in the head');
   cleanup(root);
 });
 
@@ -497,6 +597,19 @@ test('a declared plugin that is not there stops the build', async () => {
   cleanup(root);
 });
 
+test('a README\'s own files are copied to the site root, and a declared one that is absent stops the build', async () => {
+  const README = `${FIXTURE['README.md']}\n![hero](hero.png)\n`;
+  const decl = { ...DECLARATION, paths: { ...DECLARATION.paths, readmeAssets: ['hero.png'] } };
+  const root = site({ ...FIXTURE, 'README.md': README, 'hero.png': 'PNG' });
+  await build(decl, { root, log: recorder() });
+  assert.equal(readFileSync(join(root, 'site', 'hero.png'), 'utf8'), 'PNG');
+  cleanup(root);
+
+  const absent = site({ ...FIXTURE, 'README.md': README });
+  await assert.rejects(build(decl, { root: absent, log: recorder() }), /hero\.png is declared as a README asset/);
+  cleanup(absent);
+});
+
 test('the search index is checked against the files the build wrote', async () => {
   const root = site(FIXTURE);
   await build(DECLARATION, { root, log: recorder() });
@@ -504,6 +617,32 @@ test('the search index is checked against the files the build wrote', async () =
   for (const entry of index) assert.ok(existsSync(join(root, 'site', entry.h.split('#')[0])));
   assert.deepEqual(readdirSync(join(root, 'site')).sort(),
     ['assets', 'carrier.html', 'favicon.png', 'fixture.tree.js', 'index.html', 'mod.html', 'search.json']);
+  cleanup(root);
+});
+
+test('an owner may live in several places in the build, or nowhere static', async () => {
+  const tree = {
+    ...FIXTURE,
+    'dist/fixture.js': 'var fixtureTree = { mod: { alpha: function (a, b) {} },' +
+      ' other: { beta: function (a) {} } };\n',
+  };
+  const root = site(tree);
+  const parsed = parseSources({ src: join(root, 'src'), carriers: [join(root, 'docs')], surface: true, ignore: 'skip' });
+  const link = linker({ parsed, references: {}, brand: 'fixture.tree' });
+  const pkg = { name: 'fixture.tree', version: '1.2.3', license: 'MIT' };
+  const read = (owners) => import('../src/generator/surface.js')
+    .then(({ readSurface }) => readSurface({ global: 'fixtureTree' }, join(root, 'dist/fixture.js')))
+    .then(({ api, errors }) => validate(parsed, {
+      declaration: normalize({ ...DECLARATION, owners }, pkg),
+      api, surfaceErrors: errors, readme: readmeOf(root), link,
+    }));
+
+  const onePath = await read({ 'fixture/mod': 'mod', 'fixture/carrier': 'mod' });
+  assert.match(onePath.errors.join('\n'), /fixture\/mod\.beta is not in the build/, 'one path reaches one object');
+  const split = await read({ 'fixture/mod': ['mod', 'other'], 'fixture/carrier': ['mod', 'other'] });
+  assert.deepEqual(split.errors, [], 'a list of paths reaches both objects');
+  const waived = await read({ 'fixture/mod': null, 'fixture/carrier': null });
+  assert.deepEqual(waived.errors, [], 'an owner declared null is documented and not checked');
   cleanup(root);
 });
 

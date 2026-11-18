@@ -71,6 +71,7 @@ export function normalize(declaration, pkg) {
       module: paths.module ?? null,
       deps: paths.deps ?? {},
       static: paths.static ?? null,
+      readmeAssets: normalizeReadmeAssets(paths.readmeAssets),
       plugins: paths.plugins ?? 'tools/docs/plugins',
       site: paths.site,
     },
@@ -96,16 +97,20 @@ export function normalize(declaration, pkg) {
       surface: declaration.parse?.surface ?? false,
       members: declaration.parse?.members ?? null,
       ignore: declaration.parse?.ignore === 'skip' ? 'skip' : 'keep',
+      private: declaration.parse?.private === 'keep' ? 'keep' : 'skip',
+      vocabulary: normalizeVocabulary(declaration.parse?.vocabulary),
     },
     examples,
     surface,
-    owners: declaration.owners ?? {},
+    owners: normalizeOwners(declaration.owners),
+    ownerOrder: normalizeOwnerOrder(declaration.ownerOrder),
     namespaces: declaration.namespaces ?? [],
     pins: declaration.pins ?? {},
     references: {
       packages: declaration.references?.packages ?? {},
       externals: declaration.references?.externals ?? [],
       aliases: declaration.references?.aliases ?? {},
+      readme: normalizeReadmeLinks(declaration.references?.readme),
     },
     groups: declaration.groups ?? [],
     areas: declaration.areas ?? [],
@@ -131,7 +136,7 @@ function normalizeMode(mode) {
   return value;
 }
 
-/** How an `@example` is checked: its syntax, the global it reads, whether one is required. */
+/** How an `@example` is checked: its syntax, the global it reads, whether one is required, whether it defines `setup()`. */
 function normalizeExamples(examples) {
   const syntax = examples?.syntax ?? 'any';
   if (!SYNTAX.has(syntax)) throw new DeclarationError(`examples.syntax must be one of ${[...SYNTAX].join(', ')}`);
@@ -139,7 +144,81 @@ function normalizeExamples(examples) {
     syntax,
     global: examples?.global ?? null,
     required: examples?.required ?? false,
+    setup: examples?.setup ?? false,
   };
+}
+
+/**
+ * The files the README references relatively, copied to the same site-relative
+ * path: a landing page that points at `hero.png` beside it needs `hero.png` in
+ * the site's root.
+ */
+function normalizeReadmeAssets(assets) {
+  if (assets == null) return [];
+  if (!Array.isArray(assets) || assets.some((a) => typeof a !== 'string' || !a)) {
+    throw new DeclarationError('paths.readmeAssets is a list of file paths');
+  }
+  return [...assets];
+}
+
+/**
+ * Where each owner lives in the build: a path from the surface, a list of them
+ * when the build hosts one owner's names in several places, or `null` for an
+ * owner that is documented and not statically reachable.
+ */
+function normalizeOwners(owners) {
+  if (owners == null) return {};
+  if (typeof owners !== 'object' || Array.isArray(owners)) {
+    throw new DeclarationError('owners maps an owner to a path, a list of paths, or null');
+  }
+  const out = {};
+  for (const [owner, value] of Object.entries(owners)) {
+    if (value === null) { out[owner] = null; continue; }
+    const paths = Array.isArray(value) ? value : [value];
+    if (!paths.length || paths.some((p) => typeof p !== 'string' || !p)) {
+      throw new DeclarationError(`owner ${owner} needs a path from the surface, a list of them, or null`);
+    }
+    out[owner] = Array.isArray(value) ? [...paths] : paths[0];
+  }
+  return out;
+}
+
+/**
+ * A site's own closed tag vocabulary, when it states one: a tag outside it fails
+ * the build even where the package would read it (a site that documents no
+ * teaching structure refuses `@group`, rather than ignoring it).
+ */
+function normalizeVocabulary(vocabulary) {
+  if (vocabulary == null) return null;
+  if (!Array.isArray(vocabulary) || vocabulary.some((t) => typeof t !== 'string' || !t)) {
+    throw new DeclarationError('parse.vocabulary is a list of tag names, without the @');
+  }
+  const unknown = vocabulary.filter((t) => !VOCABULARY.has(t));
+  if (unknown.length) {
+    throw new DeclarationError(`parse.vocabulary names tags this package does not read: ${unknown.join(', ')}`);
+  }
+  return [...vocabulary];
+}
+
+/**
+ * How the landing page's own prose is rendered: through the doclet table and the
+ * grammars (`linked`), or as it was written (`plain`) — a README that names a
+ * method in passing is not a doc-block page, and the same bare name can mean a
+ * different owner there.
+ */
+function normalizeReadmeLinks(value) {
+  const readme = value ?? 'linked';
+  if (!['linked', 'plain'].includes(readme)) throw new DeclarationError('references.readme must be linked or plain');
+  return readme;
+}
+
+/** The owners a page puts first, in order; a bare name several owners share resolves to the first of them. */
+function normalizeOwnerOrder(order) {
+  if (order == null) return [];
+  if (!Array.isArray(order) || order.some((o) => typeof o !== 'string' || !o)) {
+    throw new DeclarationError('ownerOrder is a list of owner names');
+  }
+  return [...order];
 }
 
 /**
