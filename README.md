@@ -134,11 +134,12 @@ plugin's `slots` claims fails the build: a page cannot ask for a block and ship 
 `@nakednous/scholion/generator` exports `parseSources`, `validate`, `render`, `build`, `BuildError` and
 `DeclarationError`.
 
-**The API is unstable.** It is exported for the sibling repositories of this suite, nothing has been
-published, and it is read by every site of the suite before either half is promised: until then the shape
-moves, and the declaration — the half a site writes — is where it has moved. A CLI would change what the
-package's entry is, which is a separate question from this one. Pin the package and read this file; do not
-build on a signature that is not written here.
+**The API is unstable.** It is exported for the sibling repositories of this suite, every one of which now
+runs on it and has been read, and it is published — `0.0.1`, the four sites' only pinned version — before
+either half is promised: the shape still moves, and the declaration — the half a site writes — is where it
+has moved. A version a site pins is a version it reads this file against, so a breaking change to either
+half is a release, not a patch. A CLI would change what the package's entry is, which is a separate
+question from this one.
 
 `build` is the whole pipeline: parse → validate → render → write. The three steps are exported beside it
 because a site's own tool may want the tables without a site — a parity run does.
