@@ -343,6 +343,34 @@ test('the surface check reads the built IIFE: a name it does not export, and its
     });
 });
 
+test('a rest parameter opens the parameter list: the documented ones after it are not compared', () => {
+  const read = (body) => {
+    const root = site({
+      ...FIXTURE,
+      'dist/fixture.js': `var fixtureTree = { mod: { ${body} } };\n`,
+    });
+    const parsed = parseSources({ src: join(root, 'src'), carriers: [join(root, 'docs')], surface: true, ignore: 'skip' });
+    const link = linker({ parsed, references: {}, brand: 'fixture.tree' });
+    return import('../src/generator/surface.js')
+      .then(({ readSurface }) => readSurface({ global: 'fixtureTree' }, join(root, 'dist/fixture.js')))
+      .then(({ api, errors }) => {
+        const out = validate(parsed, {
+          declaration: normalize(DECLARATION, { name: 'fixture.tree', version: '1.2.3', license: 'MIT' }),
+          api, surfaceErrors: errors, readme: readmeOf(root), link,
+        });
+        cleanup(root);
+        return out.errors;
+      });
+  };
+  return Promise.all([
+    read('alpha: function (a, ...rest) {}, beta: function (...args) {}'),
+    read('alpha: function (x, ...rest) {}, beta: function (...args) {}'),
+  ]).then(([open, mismatched]) => {
+    assert.deepEqual(open, [], 'the fixed prefix matches, and the open list covers the rest');
+    assert.match(mismatched.join('\n'), /alpha\(a, b\) does not match the build's \(x, \.\.\.rest\)/);
+  });
+});
+
 test('an example that uses module syntax, or misses the global, fails the build', () => {
   const tree = {
     ...FIXTURE,
