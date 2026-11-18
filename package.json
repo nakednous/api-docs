@@ -19,14 +19,14 @@
     "src"
   ],
   "exports": {
-    ".": "./src/editor.js",
     "./manifest.json": "./dist/manifest.json"
   },
   "scripts": {
     "build": "node scripts/build-editor.mjs",
     "pretest": "npm run build",
     "test": "node --test test/*.test.mjs",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "posttest": "node scripts/verify-consumer.mjs"
   },
   "devDependencies": {
     "@codemirror/commands": "6.11.1",

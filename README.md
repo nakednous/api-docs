@@ -55,18 +55,24 @@ A consuming site never imports CodeMirror. It serves the built artifact and impo
 - A build that finds two copies of a package, or an asset that imports another file, fails instead of
   shipping.
 
-The package's own `exports` map: `.` is the adapter's source (for tests and tooling that install the
-CodeMirror packages themselves), `./manifest.json` is the build's interface. `prepack` rebuilds, so a
-tarball always carries a fresh bundle.
+The package's export map carries one entry, `./manifest.json`: the build's interface. There is no root
+export — a site imports the served bundle the manifest names, never the adapter's source, which would
+pull `@codemirror/*` into a page that has no business holding two editor graphs.
 
 ## Commands
 
 ```
 npm ci                   # install (esbuild's install script is the only one, allowed by .npmrc)
-npm test                 # build, then the adapter and bundle conformance suites (node:test, jsdom)
+npm test                 # build, the two conformance suites, then the consumer gate
 npm run build            # src/editor.js → dist/editor.<hash>.js + dist/manifest.json
 npm pack --dry-run       # the files a consumer installs
 ```
+
+What the suite can see, and what it cannot: `node:test` + jsdom assert the contract, the state — facets,
+history, keymaps, transactions — and the injected CSS as text. jsdom has no layout engine and the suite
+never claims layout or computed paint; tokens, caret, gutters, selection and the theme switch are a
+consuming site's browser probe's business. The consumer gate packs the tarball, installs it
+production-only and checks the installed bytes against the manifest.
 
 ## Licence
 
