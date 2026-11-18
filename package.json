@@ -1,5 +1,5 @@
 {
-  "name": "@nakednous/api-docs",
+  "name": "@nakednous/scholion",
   "version": "0.1.0",
   "description": "The shared API reference scaffold for the nakednous libraries: ESM-only, CodeMirror 6, one editor bundle.",
   "type": "module",
@@ -9,7 +9,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nakednous/api-docs.git"
+    "url": "git+https://github.com/nakednous/scholion.git"
   },
   "publishConfig": {
     "access": "public"

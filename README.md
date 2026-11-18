@@ -1,7 +1,10 @@
-# @nakednous/api-docs
+# @nakednous/scholion
 
 The shared API reference scaffold for the nakednous libraries — the editor, the site kit and the
 generator behind p5.quadrille.js, p5.tree, webgl.tree and webgpu.tree.
+
+A *scholion* (pl. *scholia*) is the note a commentator writes in the margin beside a line of someone
+else's text; these are the notes beside the libraries' source.
 
 ESM only: no CommonJS, no UMD. Node 22 or later. The first release carries the CodeMirror 6 editor
 adapter and its prebuilt ES module bundle; the generator follows.
@@ -13,7 +16,7 @@ adapter and its prebuilt ES module bundle; the generator follows.
 textarea, the buttons and the frame.
 
 ```js
-import { mountEditor } from '@nakednous/api-docs';
+import { mountEditor } from '@nakednous/scholion';
 
 const editor = mountEditor(textarea, {
   value: textarea.value,       // what Reset restores, byte for byte
