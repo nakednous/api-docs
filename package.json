@@ -37,5 +37,8 @@
     "@lezer/highlight": "1.2.5",
     "esbuild": "0.28.2",
     "jsdom": "31.0.1"
+  },
+  "dependencies": {
+    "comment-parser": "1.4.9"
   }
 }

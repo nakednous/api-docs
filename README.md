@@ -6,8 +6,20 @@ generator behind p5.quadrille.js, p5.tree, webgl.tree and webgpu.tree.
 A *scholion* (pl. *scholia*) is the note a commentator writes in the margin beside a line of someone
 else's text; these are the notes beside the libraries' source.
 
-ESM only: no CommonJS, no UMD. Node 22 or later. The first release carries the CodeMirror 6 editor
-adapter and its prebuilt ES module bundle; the generator follows.
+ESM only: no CommonJS, no UMD. Node 22 or later. The CodeMirror 6 editor adapter and its prebuilt ES
+module bundle are here; the generator is arriving beside them, one step at a time.
+
+## The generator
+
+Its first step is the parser, `src/generator/parse.js`: source files plus any documentation-only carrier
+files in, one module table and one doclet table out. It is the union of the two rules the sites state
+today, each chosen by an option — `surface` gates publicity on `src/index.js`'s re-exports, `members`
+names the class whose indented members are public, `ignore` says whether an `@ignore` block is kept for a
+coverage check or dropped, `carriers` lists the documentation-only directories.
+
+It replaces both sites' parsers with identical output: p5.quadrille.js's 91 doclets and webgl.tree's 214
+doclets and 183 examples parse to the same tables, field for field, which is how the extraction is
+checked. Validation, rendering and static output follow.
 
 ## The editor
 

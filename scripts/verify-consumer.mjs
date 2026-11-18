@@ -11,8 +11,9 @@
  *
  *   - the manifest resolves through the package's export map;
  *   - the asset the manifest names hashes to the SHA-256 the manifest states;
- *   - the installed package declares no production dependency (the editor ships
- *     bundled; a consumer installs nothing else);
+ *   - no production dependency of the package appears in the editor's bundle
+ *     graph: the generator may need Node packages (it runs at build time), but a
+ *     page must never receive one;
  *   - the root export is absent — a site imports the served bundle, never the
  *     adapter's source, so `@nakednous/scholion` itself does not resolve.
  *
@@ -85,8 +86,11 @@ try {
     `${manifest.asset} ${bytes.length} B`);
 
   const installedPkg = JSON.parse(readFileSync(join(installed, '..', 'package.json'), 'utf8'));
-  check('the installed package declares no production dependency',
-    !installedPkg.dependencies || Object.keys(installedPkg.dependencies).length === 0);
+  const declared = Object.keys(installedPkg.dependencies ?? {});
+  const inBundle = declared.filter((name) => name in manifest.packages);
+  check('no production dependency reaches the editor bundle',
+    inBundle.length === 0,
+    declared.length ? `declared ${declared.join(' ')}, bundled ${inBundle.join(' ') || 'none'}` : 'none declared');
   check('the installed package ships the build and the source',
     Array.isArray(installedPkg.files) && installedPkg.files.includes('dist'));
 
