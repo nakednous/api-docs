@@ -15,9 +15,11 @@
 
 import { VOCABULARY } from './declaration.js';
 import { liveModules, pageOf, anchorOf } from './links.js';
+import { canonicalPath, shortcodeErrors } from './pagerender.js';
 import { referenceUrl } from './references.js';
 import { ownerScope } from './surface.js';
-import { splitFences } from './markdown.js';
+import { splitFences, slug as headingSlug } from './markdown.js';
+import { symbolOfTitle } from './pages.js';
 
 const LINK_RE = /\{@link\s+([^}\s]+)\s*\}/g;
 const MODULE_SYNTAX_RE = /^\s*(import|export)\b|\bimport\s*\(|\bawait\b/m;
@@ -197,12 +199,22 @@ export function validate(parsed, ctx) {
     }
   }
 
+  // A site whose pages are Markdown files: the pages against the doclet table,
+  // both ways, and every address the site published before.
+  if (decl.carrier.pages.kind === 'markdown') {
+    pageFindings(parsed, ctx, findings, { fail, warn });
+  }
+
   // The README's own links into the site — every one names a page this build
   // writes and, with an anchor, a name it documents. The README carries them by
   // hand, so this is what keeps them from rotting.
   if (readme && decl.home) {
     const written = new Set(['index.html']);
     for (const m of liveModules(parsed)) written.add(pageOf(m.name));
+    for (const p of ctx.pages ?? []) {
+      written.add(`${decl.carrier.pages.dir}/${p.path}/`);
+      written.add(`${decl.carrier.pages.dir}/${p.path}/index.html`);
+    }
     const documented = new Set(doclets.map((d) => `${pageOf(d.module)}#${anchorOf(d)}`));
     for (const [url, line] of readmeTargets(readme, decl.home)) {
       const [page, anchor] = url.slice(decl.home.length).split('#');
@@ -221,6 +233,115 @@ export function validate(parsed, ctx) {
     errors: findings.filter((f) => f.level === 'error').map((f) => f.text),
     warnings: findings.filter((f) => f.level === 'warning').map((f) => f.text),
   };
+}
+
+/**
+ * The page carrier's own rules, both directions: a page's claim is a documented
+ * name, a doclet's page is a page that claims it, and every address an earlier
+ * site published answers — with a page or with a redirect. A directive is a
+ * block a plugin supplies: a page that asks for one nothing renders would ship
+ * an empty section, so it fails the build.
+ */
+function pageFindings(parsed, ctx, findings, { fail, warn }) {
+  const { declaration: decl, pages, data, inventory, redirects } = ctx;
+  const areas = new Set([...decl.groups.map((g) => g.slug), ...decl.areas.map((a) => a.slug)]);
+  const byPath = new Map(pages.map((p) => [p.path, p]));
+  const byName = new Map(parsed.doclets.map((d) => [d.name, d]));
+  const claims = new Map();          // page path → the name it claims
+  const anchors = new Map();         // "<parent>\0<anchor>" → the page that made it
+  const slots = data.slots ?? {};
+
+  for (const p of pages) {
+    if (areas.size && !areas.has(p.group)) fail(p, 'page', `no such area: ${p.group}`);
+
+    // An unbalanced fence swallows the rest of the page — the footnotes the
+    // carrier appends included — so it is an error, never a warning.
+    const fences = p.body.split('\n').filter((l) => /^ {0,3}(?:```|~~~)/.test(l)).length;
+    if (fences % 2) fail(p, 'page', `${fences} code fence(s): one is never closed, and everything after it renders as code`);
+    if (!Number.isFinite(p.weight) || p.weight <= 0) warn(p, 'weight', 'no positive weight — sibling order is undefined');
+
+    // A shortcode the renderer cannot resolve is a line of literal text in the
+    // prose, so a typo fails the build rather than shipping.
+    for (const { line, text } of shortcodeErrors(p.body)) {
+      fail(p, 'shortcode', `line ${line}: ${text} is not \`{{< youtube ID "caption" >}}\``);
+    }
+
+    // One anchor per title among siblings: the parent's child list must not
+    // produce the same id twice.
+    const key = `${p.parent}\u0000${headingSlug(p.title)}`;
+    if (anchors.has(key)) fail(p, 'anchor', `title anchor ${headingSlug(p.title)} already used by ${anchors.get(key)}`);
+    else anchors.set(key, p.file);
+
+    if (p.symbol && p.symbol !== 'none') {
+      const d = byName.get(p.symbol);
+      claims.set(p.path, p.symbol);
+      if (!d) fail(p, 'symbol', `symbol ${p.symbol} has no doc block`);
+      else if (d.ignore) fail(p, 'symbol', `symbol ${p.symbol} is @ignore'd in ${d.file}:${d.line}`);
+      else if (d.group && p.group && d.group !== p.group) fail(p, 'symbol', `symbol ${p.symbol} is @group ${d.group}, page is in ${p.group}`);
+    } else if (!p.isIndex && p.symbol !== 'none') {
+      const named = symbolOfTitle(p.title);
+      if (named && byName.has(named)) warn(p, 'symbol', `title names ${named} but the page claims no symbol`);
+    }
+
+    // A page's own links — the chrome's are the build's, checked on disk.
+    for (const [, target] of p.body.matchAll(/\]\(\s*([^)\s]+)\s*\)/g)) {
+      if (/^(https?:|mailto:|#)/.test(target)) continue;
+      const [bare] = target.split('#');
+      const path = bare.replace(/^\.\//, '').replace(/\/$/, '').replace(/\/index\.html$/, '');
+      const abs = path.startsWith('/') ? path.slice(1) : resolveRel(p, path);
+      if (abs === null || byPath.has(abs) || abs === '') continue;
+      fail(p, 'links', `link target ${target} is not a page`);
+    }
+
+    // The slots the page's prose asks for: a directive nothing supplies is an
+    // empty section on a page that promised a table.
+    for (const [, which] of p.body.matchAll(/<!--\s*uses:\s*(\w+)\s*-->/g)) {
+      if (!slots[p.path]?.[which]) fail(p, 'uses', `<!-- uses: ${which} --> is supplied by no plugin`);
+    }
+  }
+
+  // Canonical page per doclet: `@page`, else `<group>/<snake(name)>`.
+  for (const d of parsed.doclets) {
+    if (d.ignore) continue;
+    const want = canonicalPath(d);
+    if (!want) continue;
+    const p = byPath.get(want);
+    if (!p) fail(d, 'page', `${d.owner}.${d.name} renders on ${want}, which is not a page`);
+    // A page that claims no symbol may carry several documented names — a strip
+    // per name is the page's business; a page claiming a different one is drift.
+    else if (p.symbol && p.symbol !== 'none' && p.symbol !== d.name) {
+      fail(d, 'page', `${want} claims ${p.symbol}, not ${d.name}`);
+    }
+  }
+
+  // What an earlier site published: a path must answer, and a child anchor must
+  // be one its parent lists.
+  for (const path of inventory?.pages ?? []) {
+    if (byPath.has(path)) continue;
+    if (redirects?.pages && path in redirects.pages) continue;
+    warn({ file: 'inventory' }, 'inventory', `published path ${path} has no page — add a redirect`);
+  }
+  for (const anchor of inventory?.anchors ?? []) {
+    const [path, id] = anchor.split('#');
+    if (!byPath.has(path)) continue;
+    if (!pages.some((o) => o.parent === path && headingSlug(o.title) === id)) {
+      warn({ file: 'inventory' }, 'inventory', `published anchor ${anchor} is not a child anchor`);
+    }
+  }
+  for (const gone of Object.keys(redirects?.pages ?? {})) {
+    if (byPath.has(gone)) fail({ file: 'redirects' }, 'redirects', `redirect ${gone} is also a page — the stub would replace it`);
+  }
+}
+
+/** Resolve a relative link from a page's URL directory to a docs-relative path. */
+function resolveRel(page, target) {
+  const parts = (page.path ? page.path.split('/') : []).concat(target.split('/'));
+  const out = [];
+  for (const part of parts) {
+    if (part === '..') out.pop();
+    else if (part && part !== '.') out.push(part);
+  }
+  return out.join('/');
 }
 
 /** A code a site names in `strict` fails the build rather than printing. */

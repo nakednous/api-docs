@@ -12,8 +12,11 @@
  * Types render verbatim: nothing here parses a type expression.
  */
 
+import { resolveValue } from './declaration.js';
 import { liveModules, anchorOf, pageOf, qualified } from './links.js';
 import { firstSentence, marked } from './markdown.js';
+import { depthOf } from './pages.js';
+import { renderPages } from './pagerender.js';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
@@ -145,12 +148,25 @@ const themeControl = (extra = '') => `
 
 /**
  * The page: head, chrome, main, footer.
+ *
+ * `nav` is either the flat list of a module site's pages or, for a site whose
+ * pages are a tree, the tree's own markup. `page` is the page being written,
+ * where the site has one: its depth from the site root is what a nested page's
+ * `{root}` token resolves to, and every URL the shell itself writes is relative
+ * to it.
+ *
  * @param {Object} state  what every page of this site shares — brand, shell, runner, config
- * @param {{ title: string, active: string, body: string, nav: Object[], pager?: string }} page
+ * @param {{ title: string, active: string, body: string, nav: Object[]|string,
+ *   pager?: string, page?: Object, video?: boolean }} page
  */
-export function shell(state, { title, active, body, nav, pager = '' }) {
-  const { brand, declaration: decl, urls, config } = state;
-  const v = (url) => (state.stamp && url ? `${url}?v=${state.stamp}` : url);
+export function shell(state, { title, active, body, nav, pager = '', page = null, video = false }) {
+  const { brand, declaration: decl, urls } = state;
+  // The page's prefix to the site root: no prefix on a flat site's pages.
+  const root = page ? '../'.repeat(depthOf(page.path)) : '';
+  const config = resolveValue(state.config, { root });
+  // Every site-local URL this shell writes is relative to the page: a nested
+  // page's assets are the same files, four levels up.
+  const v = (url) => (url == null ? url : `${root}${url}${state.stamp ? `?v=${state.stamp}` : ''}`);
   // A JSON data block, not code: `<` is escaped so a value can never close the element.
   const json = JSON.stringify(config).replace(/</g, '\\u003c');
   const scripts = [
@@ -158,9 +174,13 @@ export function shell(state, { title, active, body, nav, pager = '' }) {
     decl.runner.search,
     decl.runner.chrome,
     ...decl.runner.extra,
+    ...(video ? [decl.runner.video] : []),
   ].filter(Boolean);
   const attrs = decl.mode === 'esm' ? 'type="module"' : 'defer';
   const icon = (f) => `<link rel="icon" sizes="${f.sizes}" href="${v(f.href)}">`;
+  const modules = typeof nav === 'string' ? nav : `<ul class="modules">${nav.map((n) => `
+        <li><a href="${n.href}"${n.href === active ? ' aria-current="page"' : ''}>${esc(n.label)}</a></li>`).join('')}
+      </ul>`;
   const icons = decl.shell.favicon.map(icon).join('\n  ');
   // The package's base first, where a site states one: it is the structure of
   // this markup, and the site's own file overrides its variables.
@@ -183,16 +203,14 @@ export function shell(state, { title, active, body, nav, pager = '' }) {
   <button class="rail-reopen" type="button" data-rail-toggle aria-controls="site-sidebar" aria-expanded="false" aria-label="Show the navigation">☰</button>
   <nav class="sidebar" id="site-sidebar" aria-label="Documentation">
     <div class="side-head">
-      <a class="brand" href="index.html">${esc(brand.name)}</a>
+      <a class="brand" href="${root}index.html">${esc(brand.name)}</a>
       <span class="version">v${esc(brand.version)}</span>
       ${themeControl('head-theme')}
       <button class="rail-toggle" type="button" data-rail-toggle aria-controls="site-sidebar" aria-expanded="true" aria-label="Hide the navigation">«</button>
     </div>
     <input class="search" type="search" placeholder="${esc(decl.shell.search.placeholder)}" aria-label="${esc(decl.shell.search.label)}" autocomplete="off">
     <div class="side-nav" id="site-nav">
-      <ul class="modules">${nav.map((n) => `
-        <li><a href="${n.href}"${n.href === active ? ' aria-current="page"' : ''}>${esc(n.label)}</a></li>`).join('')}
-      </ul>
+      ${modules}
       <ul class="results" hidden></ul>
     </div>
     <div class="side-foot">${themeControl()}
@@ -243,6 +261,9 @@ function searchIndex(doclets) {
  * @returns {Map<string, string>} site-relative file → HTML
  */
 export function render(parsed, state) {
+  if (state.declaration.carrier.pages.kind === 'markdown') {
+    return renderPages(parsed, { ...state, shell });
+  }
   const { declaration: decl, link, urls } = state;
   const pages = new Map();
   const modules = liveModules(parsed);

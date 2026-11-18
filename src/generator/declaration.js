@@ -26,6 +26,7 @@ export const VOCABULARY = new Set([
 ]);
 
 const MODES = new Set(['esm', 'global']);
+const PAGES_KINDS = new Set(['modules', 'markdown']);
 const SYNTAX = new Set(['global', 'module', 'any']);
 const CHECKS = new Set(['reexports', 'all']);
 
@@ -70,6 +71,8 @@ export function normalize(declaration, pkg) {
       module: paths.module ?? null,
       deps: paths.deps ?? {},
       static: paths.static ?? null,
+      inventory: paths.inventory ?? null,
+      redirects: paths.redirects ?? null,
       readmeAssets: normalizeReadmeAssets(paths.readmeAssets),
       plugins: paths.plugins ?? 'tools/docs/plugins',
       site: paths.site,
@@ -84,6 +87,7 @@ export function normalize(declaration, pkg) {
     },
     carrier: {
       docs: declaration.carrier?.docs ?? null,
+      pages: normalizePages(declaration.carrier?.pages),
       landing: declaration.carrier?.landing
         ? {
           file: declaration.carrier.landing.file,
@@ -120,12 +124,52 @@ export function normalize(declaration, pkg) {
       search: runner.search ?? null,
       chrome: runner.chrome ?? null,
       extra: runner.extra ?? [],
+      video: runner.video ?? null,
       config: runner.config ?? {},
     },
     plugins: normalizePlugins(declaration.plugins),
     stamp: declaration.stamp ?? false,
     strict,
   };
+}
+
+/**
+ * The page tree: the kind of carrier a site's pages come from — `'modules'`, one
+ * page per documented module, which needs no directory — or `'markdown'`, one
+ * page per file under `dir` at its own address. `source` is the address the
+ * strip's source line links into (`<source><file>#L<line>`) on a page carrier.
+ */
+function normalizePages(pages) {
+  const kind = pages?.kind ?? 'modules';
+  if (!PAGES_KINDS.has(kind)) throw new DeclarationError(`carrier.pages.kind must be one of ${[...PAGES_KINDS].join(', ')}`);
+  if (kind === 'modules') return { kind, dir: null, source: null };
+  if (typeof pages?.dir !== 'string' || !pages.dir) {
+    throw new DeclarationError('carrier.pages.dir is required — the directory the Markdown pages live in');
+  }
+  const source = pages.source ?? null;
+  if (source != null && (typeof source !== 'string' || !/^https?:\/\//.test(source))) {
+    throw new DeclarationError('carrier.pages.source is the address the source line links into');
+  }
+  return { kind, dir: pages.dir.replace(/\/+$/, ''), source };
+}
+
+/**
+ * A declaration value with its `{tokens}` filled: a `{token}` a declaration
+ * states is replaced by what the build knows (`bundle`, `module`, `index`,
+ * `editor`, `notices`, `stamp`, `root`, `dep:<name>`, `pin:<name>:<field>`), and
+ * anything else is left as written. Objects and lists are walked.
+ * @param {*} value
+ * @param {Object<string, string>} tokens
+ */
+export function resolveValue(value, tokens) {
+  if (typeof value === 'string') {
+    return value.replace(/\{([\w:.@/-]+)\}/g, (all, key) => (key in tokens ? tokens[key] : all));
+  }
+  if (Array.isArray(value)) return value.map((v) => resolveValue(v, tokens));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, resolveValue(v, tokens)]));
+  }
+  return value;
 }
 
 /** `'esm'` or `'global'`: how a page's own scripts are loaded and handed its config. */

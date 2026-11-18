@@ -21,10 +21,12 @@ import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { DeclarationError, normalize, pinUrls } from './declaration.js';
+import { DeclarationError, normalize, pinUrls, resolveValue } from './declaration.js';
 import { linker } from './links.js';
+import { loadPages, readingOrder, buildTree } from './pages.js';
 import { parseSources } from './parse.js';
 import { render, shell } from './render.js';
+import { sketchFences } from './pagerender.js';
 import { readSurface } from './surface.js';
 import { validate } from './validate.js';
 
@@ -94,7 +96,7 @@ function notices(manifest) {
  * @param {(p: string) => string} at
  * @returns {string} 8 hex characters
  */
-function buildStamp(decl, at) {
+function buildStamp(decl, at, pages = []) {
   const hash = createHash('sha1');
   for (const file of [decl.paths.bundle, decl.paths.module].filter(Boolean)) {
     if (existsSync(at(file))) hash.update(readFileSync(at(file)));
@@ -111,27 +113,13 @@ function buildStamp(decl, at) {
   for (const file of [decl.paths.readme, decl.carrier.landing?.file].filter(Boolean)) {
     hash.update(readText(at(file)) ?? '');
   }
+  // A page carrier's own prose is part of what ships: a rebuilt page, not a
+  // rebuilt script, is what the reader would otherwise get from a cache.
+  for (const page of pages) hash.update(page.file).update(page.body);
   // The base stylesheet is the package's, not the site's, so a package upgrade
   // that changes it must move the stamp the page's stylesheet URL carries.
   if (decl.shell.base) hash.update(readFileSync(BASE_SHEET));
   return hash.digest('hex').slice(0, 8);
-}
-
-/**
- * A config value: a `{token}` template filled from what the build knows, or a
- * literal. Objects are walked one level (the page's import map).
- * @param {*} value
- * @param {Object} tokens
- */
-function resolveValue(value, tokens) {
-  if (typeof value === 'string') {
-    return value.replace(/\{([\w:.@/-]+)\}/g, (all, key) => (key in tokens ? tokens[key] : all));
-  }
-  if (Array.isArray(value)) return value.map((v) => resolveValue(v, tokens));
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, resolveValue(v, tokens)]));
-  }
-  return value;
 }
 
 /**
@@ -172,7 +160,7 @@ async function loadPlugins(decl, at) {
     if (!plugin || typeof plugin !== 'object') {
       throw new DeclarationError(`plugin ${name} has no default export object`);
     }
-    out.push({ name, validate: plugin.validate ?? null, render: plugin.render ?? null });
+    out.push({ name, data: plugin.data ?? null, validate: plugin.validate ?? null, render: plugin.render ?? null });
   }
   return out;
 }
@@ -209,6 +197,13 @@ export async function build(declaration, { root = process.cwd(), log = console }
   // The site's plugins, by name: they are the one place its code runs here.
   const plugins = await loadPlugins(decl, at);
 
+  const pageDir = decl.carrier.pages.dir ? at(decl.carrier.pages.dir) : null;
+  if (pageDir && !existsSync(pageDir)) {
+    throw new DeclarationError(`${decl.carrier.pages.dir} is declared as the page carrier and is not there`);
+  }
+  const inventory = decl.paths.inventory ? JSON.parse(readText(at(decl.paths.inventory)) ?? 'null') : null;
+  const redirects = decl.paths.redirects ? JSON.parse(readText(at(decl.paths.redirects)) ?? 'null') : null;
+
   // Parse, then read the build the doclets are checked against.
   const parsed = parseSources({
     src: at(decl.paths.src),
@@ -218,6 +213,12 @@ export async function build(declaration, { root = process.cwd(), log = console }
     ignore: decl.parse.ignore,
     private: decl.parse.private,
   });
+  // The page tree, where the site's pages are files: the carrier reads it once
+  // and every later step — the plugins, the checks, the renderer — reads that.
+  const pages = pageDir ? loadPages(pageDir) : null;
+  const tree = pages ? buildTree(pages) : null;
+  const order = pages ? readingOrder(tree.roots).map((path) => tree.byPath.get(path)) : null;
+
   const surfaceFile = decl.surface?.module ? decl.paths.module : decl.paths.bundle;
   const built = decl.surface && surfaceFile
     ? await readSurface(decl.surface, at(surfaceFile))
@@ -231,10 +232,28 @@ export async function build(declaration, { root = process.cwd(), log = console }
     brand: decl.brand.name,
   });
 
+  // What a site's own analysis supplies the carrier's slots with: the blocks a
+  // page's directives name, the page's foot, and the index entries its names
+  // earn. A plugin's `data` runs before the checks, because a directive no data
+  // claims is one of them.
+  const data = {};
+  for (const plugin of plugins) {
+    if (!plugin.data) continue;
+    const added = await plugin.data(parsed, { declaration: decl, pages, tree, order, link, readme }) ?? {};
+    for (const [key, value] of Object.entries(added)) {
+      if (key === 'notes') continue;
+      // A supplied list is appended to; a supplied map of page → block is merged.
+      data[key] = Array.isArray(value) ? [...(data[key] ?? []), ...value]
+        : { ...(data[key] ?? {}), ...value };
+    }
+    for (const note of added.notes ?? []) log.log(`[docs] note  ${note}`);
+  }
+
   // Validate — the package's checks, then each plugin's own. Errors stop the
   // build, warnings print, and a code the declaration names in `strict` fails it.
   const validateCtx = {
     declaration: decl, api: built.api, surfaceErrors: built.errors, readme, link, parsed,
+    pages, tree, order, inventory, data,
   };
   const { errors, warnings } = validate(parsed, validateCtx);
   for (const plugin of plugins) {
@@ -248,7 +267,7 @@ export async function build(declaration, { root = process.cwd(), log = console }
   if (errors.length) throw new BuildError(errors);
 
   // The stamp over what ships, then the URLs a page names, then the page's config.
-  const stamp = decl.stamp ? buildStamp(decl, at) : '';
+  const stamp = decl.stamp ? buildStamp(decl, at, pages ?? []) : '';
   const editor = editorAsset();
   const urls = {
     bundle: decl.outputs.bundle,
@@ -267,6 +286,12 @@ export async function build(declaration, { root = process.cwd(), log = console }
     readme,
     landing,
     stamp,
+    pages,
+    order,
+    slots: data.slots ?? {},
+    index: data.index ?? [],
+    redirects,
+    inventory,
   };
 
   // Render, then the site's plugins: they add pages and anchors, and nothing else.
@@ -275,7 +300,7 @@ export async function build(declaration, { root = process.cwd(), log = console }
     const pluginCtx = {
       ...state,
       parsed,
-      pages: files,
+      rendered: files,
       emit: (file, html) => files.set(file, html),
       shell: (page) => shell(state, page),
       output: (name) => decl.outputs[name],
@@ -341,6 +366,8 @@ export async function build(declaration, { root = process.cwd(), log = console }
     files,
     modules: parsed.modules,
     doclets: parsed.doclets,
+    pages: pages?.length ?? 0,
+    sketches: (pages ?? []).reduce((n, p) => n + sketchFences(p.body).filter((code) => /(^|[^\w$])(?:async\s+)?function\s+setup\s*\(/.test(code)).length, 0),
     examples: parsed.doclets.reduce((n, d) => n + d.examples.length, 0),
     warnings,
     stamp,

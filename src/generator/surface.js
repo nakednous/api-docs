@@ -114,8 +114,14 @@ export function ownerScope(api, owners, owner) {
 
 /**
  * The build, read once.
- * @param {{ global?: string, module?: string, globals?: Object }} surface
- *        `global`: the name the IIFE leaves in scope, evaluated with the
+ *
+ * `global` is the name the IIFE leaves in scope — or a list of names, when a
+ * build leaves one thing behind and installs another onto the host it is handed
+ * (an addon's class, and the functions it registers). A list's api is an object
+ * keyed by those names, so an owner's path starts at whichever of them hosts it.
+ *
+ * @param {{ global?: string|string[], module?: string, globals?: Object }} surface
+ *        `global`: the name(s) the IIFE leaves in scope, evaluated with the
  *        declared globals plus `window`/`document` (a browser build loaded in
  *        Node). `module`: an ES build, imported and used as the namespace.
  * @param {string} bundle  absolute path of the build to read
@@ -133,10 +139,19 @@ export async function readSurface(surface, bundle) {
   if (!surface.global) return { api: null, errors: [] };
   const names = ['window', 'document', ...Object.keys(surface.globals ?? {})];
   const values = [globalThis, undefined, ...Object.values(surface.globals ?? {})];
+  const wanted = Array.isArray(surface.global) ? surface.global : [surface.global];
+  const read = (name) => `typeof ${name} === 'undefined' ? null : ${name}`;
+  const source = Array.isArray(surface.global)
+    ? `{${wanted.map((n) => `${JSON.stringify(n)}: ${read(n)}`).join(', ')}}`
+    : read(wanted[0]);
   try {
     const code = readFileSync(bundle, 'utf8');
-    const api = new Function(...names, `${code}\n;return typeof ${surface.global} === 'undefined' ? null : ${surface.global};`)(...values);
-    return api ? { api, errors: [] } : { api: null, errors: [`build: ${bundle} leaves no ${surface.global} behind`] };
+    const api = new Function(...names, `${code}\n;return ${source};`)(...values);
+    const missing = Array.isArray(surface.global)
+      ? wanted.filter((n) => api[n] == null)
+      : (api == null ? wanted : []);
+    if (missing.length) return { api: null, errors: [`build: ${bundle} leaves no ${missing.join(' / ')} behind`] };
+    return { api, errors: [] };
   } catch (e) {
     return { api: null, errors: [`build: evaluating ${bundle} failed — ${e.message}`] };
   }

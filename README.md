@@ -37,13 +37,13 @@ Every field is a statement about the site, never a step. The ones this package r
 
 | field | what it states |
 |---|---|
-| `paths` | `pkg`, `readme`, `src`, `bundle`, `module`, `deps`, `static`, `plugins`, `site` — repo-relative; `readmeAssets` — files the README names relatively, copied to the same site-relative path |
+| `paths` | `pkg`, `readme`, `src`, `bundle`, `module`, `deps`, `static`, `plugins`, `site` — repo-relative; `readmeAssets` — files the README names relatively, copied to the same site-relative path; `inventory`, `redirects` — the two files a page carrier answers its old addresses with |
 | `outputs` | `bundle`, `module`, `deps`, `index`, `editor`, `notices` — what the build writes, as the page names it |
 | `brand` | `name`, `version`, `license`; each defaults to the package manifest, and a stated version that disagrees with it is the site's problem, not a build fact |
-| `carrier` | `docs`: documentation-only sources the parser reads; `landing`: a Markdown file rendered as a section of the landing page, its one `js` fence a live module demo (`{ file, section, id }`) |
+| `carrier` | `docs`: documentation-only sources the parser reads; `landing`: a Markdown file rendered as a section of the landing page, its one `js` fence a live module demo (`{ file, section, id }`); `pages`: the page tree — `kind` (`'modules'`, one page per documented module, the default, or `'markdown'`, one page per file), `dir` (the directory the Markdown lives in, which is also the first path segment of every URL), and `source` (the address the strip's source line links into) |
 | `parse` | `surface` (gate on what `src/index.js` re-exports or declares), `members` (the class whose indented members are public), `ignore` (`'skip'` drops an `@ignore` block, `'keep'` keeps it for a coverage check), `private` (`'skip'` keeps a leading `_` off the site, `'keep'` documents it), `vocabulary` (the site's own closed tag set, where it states one) |
 | `examples` | `syntax` (`'global'` — classic scripts, `'module'`, `'any'`), `global` (the global an example must read), `required` (a function with no `@example` is a warning), `setup` (every example defines `setup()`) |
-| `surface` | `global` (the name the IIFE leaves behind, or the host global it installs onto) or `module: true` (the ES build at `paths.module`, imported), `globals` (what that build reads at load), `check` (`'reexports'` — the documentation-only carriers only — or `'all'`) |
+| `surface` | `global` (the name the IIFE leaves behind, or the host global it installs onto; a list of names when a build leaves one thing behind and installs another onto the host it is handed — the api is then keyed by those names) or `module: true` (the ES build at `paths.module`, imported), `globals` (what that build reads at load), `check` (`'reexports'` — the documentation-only carriers only — or `'all'`) |
 | `owners` | where each owner lives in the build: a path from the surface, a list of paths when one owner's names sit in several places, an empty path for an owner whose names are the surface's own top-level exports, `path()` for the object a factory returns (its methods defined in the factory's body or attached to the result), or `null` for an owner that is documented and not statically reachable |
 | `ownerOrder` | the owners a page puts first, in order; a bare name several owners share resolves to the first of them |
 | `namespaces` | owners written as a prefix in signatures (`tree.mat4Mul`) |
@@ -52,7 +52,7 @@ Every field is a statement about the site, never a step. The ones this package r
 | `home` | the address the site is served from: a README link into it must name a page and a name the build writes |
 | `mode` | `'esm'` or `'global'` — how the page loads its own scripts; the JSON block is the page's config either way |
 | `shell` | `base` — the site path the package's base stylesheet is written to, when the site takes it; `stylesheet` — the site's own file, which states its colours; `favicon`; `search` (the box's placeholder and label) |
-| `runner` | `script`, `search`, `chrome`, `extra`, and `config` — the page's config block |
+| `runner` | `script`, `search`, `chrome`, `extra`, `video` (a script loaded only by a page that carries a video shortcode), and `config` — the page's config block |
 | `groups`, `areas` | the teaching structure, where a site has one; a site that states none has `@group`/`@page` ignored |
 | `plugins` | the names this site's code is known by, resolved as `paths.plugins/<name>.mjs` |
 | `strict` | the finding codes that fail the build rather than print |
@@ -94,13 +94,20 @@ hook to add quietly.
 
 ## Plugins
 
-A plugin is a named object with two optional methods, and it is the only place a site's code runs inside
-this package.
+A plugin is a named object with three optional methods, and it is the only place a site's code runs
+inside this package.
 
 ```js
 // tools/docs/plugins/host.mjs
 export default {
   name: 'host',
+  data(parsed, ctx) {                     // what the carrier's slots render, before the checks
+    return {
+      slots: { 'reference/host': { host: '<table class="terms">…' }, 'areas/alpha': { foot: '…' } },
+      index: [{ t: 'createCanvas', h: 'docs/reference/host/#createcanvas', k: 'p5', s: '…' }],
+      notes: ['3 name(s) belong to no tier: …'],
+    };
+  },
   validate(parsed, ctx) {                 // may add errors and warnings
     return { errors: [], warnings: ['…'] };
   },
@@ -110,9 +117,17 @@ export default {
 };
 ```
 
-`ctx` for both is the build's state: `declaration`, `parsed`, `link` (the name table and its markdown
-renderers), `urls`, `config`, `readme`, `landing`, `stamp`, `api`; `render` also gets `pages` (what is
-rendered so far), `emit(file, html)`, `shell(page)` and `output(name)`.
+`ctx` for `data` and `validate` is the build's state: `declaration`, `parsed`, `pages` (the carrier's page
+records, on a site whose pages are files), `tree`, `order`, `link` (the name table and its markdown
+renderers), `readme`, `api`, `inventory`, `data` (what every plugin's `data` has supplied so far);
+`render` gets `declaration`, `parsed`, `link`, `urls`, `config`, `readme`, `landing`, `stamp`, `rendered`
+(the pages rendered so far), `emit(file, html)`, `shell(page)` and `output(name)`.
+
+**`data`'s three fields.** `slots` maps a page path to the HTML a slot of that page renders: the block a
+`<!-- uses: NAME -->` directive in the page's prose names, and `foot`, the block a page carrier puts after
+its prose. `index` is the entries the plugin's own names earn in the search index, appended between the
+carrier's symbols and its pages. `notes` are lines the build prints and nothing else reads. A directive no
+plugin's `slots` claims fails the build: a page cannot ask for a block and ship an empty section.
 
 ## The generator's API
 
@@ -170,6 +185,45 @@ states no colour: a site's own stylesheet states the colour tokens (`--bg`, `--b
 `--border`, `--accent`, `--accent-ink`, `--accent-2`, `--stage`, the `--cm-*` roles) and overrides the
 type where its page's code is not the base's. A site that states no `shell.base` keeps the one stylesheet
 it wrote.
+
+### The page carrier
+
+A site whose pages are files states `carrier.pages: { kind: 'markdown', dir }` and the build writes one page
+per Markdown file at `<dir>/<path>/index.html` — the directory's name is the first segment of every URL, so a
+page tree is a move, not a rename. `_index.md` is its directory's page.
+
+**Front matter** is the binding: `title`, `weight` (order among siblings), and `symbol` — the documented name
+the page carries, absent for a supplement, `none` for a page whose title names a surface it deliberately does
+not claim. The page renders the symbol's **strip** — its signatures, one line per surface the doclet
+documents, its return type, a parameter table only where the page states none of its own, and the source line
+the declaration's `source` prefix links into. A doclet renders its strip on one page: the `@page` it states, or
+`<group>/<snake(name)>`; a second page may claim the same name and carries no strip.
+
+**A fence that defines `setup()` is a sketch** and runs in the site's editor; any other fence is a plain
+`<pre><code>`. That is the same rule the package applies to an `@example`, so a page keeps both a fragment and
+a runnable example without a tag.
+
+**One shortcode**: `{{< youtube ID "caption" >}}` renders as a 16:9 figure whose poster links to the watch
+page, which the site's own script upgrades to the player — no frame is in the HTML, so no page's load waits on
+YouTube. Any other shortcode-shaped run fails the build, because a shortcode the renderer cannot resolve ships
+as literal text.
+
+**The blocks the package cannot compute are slots**, and a plugin supplies them (`data`, above): the HTML a
+page's `<!-- uses: NAME -->` directive names, and the block at the page's foot. The carrier decides where a
+slot goes and refuses a directive nothing claims.
+
+**What a page tree adds to the index**: one entry per documented name (`k: 'symbol'`), the entries a plugin
+supplies, then one per page (`k: 'section'` for a directory page, `k: 'page'` otherwise) — `{ t, h, k, s }`,
+each href site-root-relative. A module site's index keeps its own shape (`{ n, o, h, s }`, one entry per
+documented name), so a page tree's index is the carrier's.
+
+**Addresses.** Every URL the shell writes is relative to the page, and the page's own prefix to the site root
+is the `{root}` token a declaration may name in `runner.config`: `new URL(config.lib, new URL(config.root,
+document.baseURI))` is a site-local file from any depth. `paths.inventory` is the record an earlier site's
+addresses are checked against — a published path with no page and no redirect is a warning — and
+`paths.redirects` maps a historical path to the page that answers it now, or to `null` for the landing page;
+the build writes a meta-refresh stub and a `rel=canonical` link for each. A redirect whose path is also a page
+is an error: the stub would replace the page.
 
 ## The editor
 
