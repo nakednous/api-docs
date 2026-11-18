@@ -59,6 +59,16 @@ test('mount: the contract, the inserted view, the hidden textarea last', () => {
   adapter.destroy();
 });
 
+test('mount: value is the Reset target only — an empty textarea stays empty', () => {
+  const { document, textarea } = fresh('');
+  const adapter = mountEditor(textarea, { value: 'let seeded = 1;\n' });
+  assert.equal(adapter.getValue(), '', 'the document is the textarea\'s text, empty or not');
+  adapter.reset();
+  assert.equal(adapter.getValue(), 'let seeded = 1;\n', 'and Reset is what restores `value`');
+  assert.equal(document.querySelectorAll('.cm-editor').length, 1);
+  adapter.destroy();
+});
+
 test('mount: the document is the textarea\'s current value, so a late edit survives', () => {
   const { textarea } = fresh();
   const late = `${SOURCE}// edited while loading\n`;
@@ -197,6 +207,25 @@ test('two editors on one page: separate state, separate histories, separate rese
   assert.equal(b.getValue(), 'let other = 2;\n');
   a.destroy();
   b.destroy();
+});
+
+test('the accessible name: the textarea\'s aria-label reaches the editor\'s content DOM', () => {
+  const { window, document, textarea } = fresh();
+  const labelled = mountEditor(textarea, {});
+  assert.equal(labelled.getValue(), SOURCE);
+  assert.equal(textarea.getAttribute('aria-label'), 'sketch source');
+  assert.equal(textarea.parentElement.querySelector('.cm-content').getAttribute('aria-label'),
+    'sketch source', 'the mounted textbox keeps the name the textarea had');
+  labelled.destroy();
+
+  const bare = document.createElement('div');
+  bare.innerHTML = '<textarea class="source"></textarea>';   // no aria-label: no attribute
+  document.body.append(bare);
+  const plain = mountEditor(bare.querySelector('textarea'), {});
+  assert.equal(bare.querySelector('.cm-content').hasAttribute('aria-label'), false,
+    'a textarea without a label adds no attribute');
+  plain.destroy();
+  assert.equal(document.querySelectorAll('.cm-content').length, 0, 'both views are gone');
 });
 
 test('the theme and the highlight style are CSS variables with light and dark fallbacks', () => {

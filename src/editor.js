@@ -39,9 +39,10 @@ import { editorTheme, highlightStyle } from './theme.js';
  * @param {Object} options
  * @param {Function} [options.onRun]  Called by Mod-Enter; the binding consumes the key either way.
  * @param {boolean} [options.wrap]    Adds `EditorView.lineWrapping`.
+ * @param {string|null} [options.label] The textarea's `aria-label`, when it has one.
  * @returns {Array} extensions
  */
-function extensions({ onRun, wrap }) {
+function extensions({ onRun, wrap, label }) {
   return [
     javascript(),
     lineNumbers(),
@@ -53,6 +54,7 @@ function extensions({ onRun, wrap }) {
     syntaxHighlighting(highlightStyle),
     editorTheme,
     wrap ? EditorView.lineWrapping : [],
+    label ? EditorView.contentAttributes.of({ 'aria-label': label }) : [],
     keymap.of([
       {
         key: 'Mod-Enter',
@@ -91,8 +93,10 @@ function fallbackAdapter(textarea, original) {
 export function mountEditor(textarea, options = {}) {
   const { value, onRun, wrap = false } = options;
   const original = value ?? textarea.value;
-  const initial = textarea.value !== '' ? textarea.value : original;
-  const config = extensions({ onRun, wrap });
+  // The document is the textarea's text, empty or not: `value` is the Reset
+  // target, never a way to resurrect a cleared box.
+  const initial = textarea.value;
+  const config = extensions({ onRun, wrap, label: textarea.getAttribute('aria-label') });
 
   let view = null;
   try {

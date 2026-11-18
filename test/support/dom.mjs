@@ -60,9 +60,9 @@ export function page(body = '') {
   return install(body);
 }
 
-/** The markup a page's example figure carries. */
+/** The markup a page's example figure carries — the attribute set the renderer writes. */
 export function figure(code) {
-  return `<div class="editor"><textarea class="source" spellcheck="false">${code}</textarea></div>`;
+  return `<div class="editor"><textarea class="source" spellcheck="false" aria-label="sketch source">${code}</textarea></div>`;
 }
 
 /**
