@@ -9,13 +9,18 @@
  * states none. The switch is `color-scheme` only: no `Compartment`, no view
  * rebuild.
  *
- * The variables: `--cm-bg`, `--cm-caret`, `--cm-selection`, `--cm-gutter-bg`,
- * `--cm-gutter-fg`, `--cm-gutter-border`, `--cm-active-line`,
- * `--cm-active-gutter`, `--cm-special-char`, `--cm-matching-bracket`,
- * `--cm-invalid`, `--cm-comment-style`, and one per token class: `--cm-keyword`,
- * `--cm-atom`, `--cm-number`, `--cm-string`, `--cm-string-2`, `--cm-comment`,
- * `--cm-def`, `--cm-variable-2`, `--cm-property`, `--cm-operator`,
- * `--cm-builtin`, `--cm-type`, `--cm-tag`.
+ * The package owns the structure and the token-role mapping; a site owns the
+ * colours. Every structural colour reads the page's own `--bg-2`, `--fg`,
+ * `--border` and `--muted` first; every token role reads its `--cm-*` variable
+ * and falls back to the page's ink, so a site that states no palette gets
+ * monochrome code rather than another site's opinion. A site that wants colour
+ * states `--cm-keyword`, `--cm-atom`, `--cm-number`, `--cm-string`,
+ * `--cm-string-2`, `--cm-comment`, `--cm-def`, `--cm-variable-2`,
+ * `--cm-property`, `--cm-operator`, `--cm-builtin`, `--cm-type`, `--cm-tag`,
+ * `--cm-invalid`; the structural variables are `--cm-bg`, `--cm-caret`,
+ * `--cm-selection`, `--cm-gutter-bg`, `--cm-gutter-fg`, `--cm-gutter-border`,
+ * `--cm-active-line`, `--cm-active-gutter`, `--cm-special-char`,
+ * `--cm-matching-bracket`, `--cm-comment-style`, `--cm-focus`.
  *
  * Specificity: the base theme's colour rules are two or three classes deep, so
  * the overrides below state the same depth and depend on the order the view
@@ -28,6 +33,9 @@ import { tags } from '@lezer/highlight';
 
 /** A variable with a light and a dark fallback. */
 const colour = (name, light, dark) => `var(--${name}, light-dark(${light}, ${dark}))`;
+
+/** A token role: the site's colour, or the page's ink — never a palette of the package's. */
+const token = (name) => `var(--${name}, currentColor)`;
 
 /** A variable, then the page's own variable of that role, then the pair. */
 const site = (name, role, light, dark) => `var(--${name}, var(--${role}, light-dark(${light}, ${dark})))`;
@@ -47,7 +55,14 @@ export const editorTheme = EditorView.theme({
     fontSize: 'var(--cm-font-size, .8125rem)',
     lineHeight: 'var(--cm-line-height, 1.5)',
   },
+  // The base theme draws a dotted ring on focus. It is suppressed for a pointer,
+  // and a keyboard focus gets the site's ring — `:has()` measures the content, so
+  // no extension is needed to know how the editor was focused.
   '&.cm-focused': { outline: 'none' },
+  '&:has(.cm-content:focus-visible)': {
+    outline: '2px solid var(--cm-focus, var(--accent, currentColor))',
+    outlineOffset: '2px',
+  },
   '.cm-scroller': {
     fontFamily: 'var(--cm-font, ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace)',
     lineHeight: 'inherit',
@@ -80,27 +95,27 @@ export const editorTheme = EditorView.theme({
  */
 export const highlightStyle = HighlightStyle.define([
   { tag: [tags.keyword, tags.controlKeyword, tags.moduleKeyword, tags.operatorKeyword,
-          tags.definitionKeyword, tags.modifier], color: colour('cm-keyword', '#708', '#c792ea') },
-  { tag: [tags.atom, tags.bool, tags.null], color: colour('cm-atom', '#219', '#f78c6c') },
-  { tag: [tags.number, tags.integer, tags.float], color: colour('cm-number', '#164', '#f78c6c') },
+          tags.definitionKeyword, tags.modifier], color: token('cm-keyword') },
+  { tag: [tags.atom, tags.bool, tags.null], color: token('cm-atom') },
+  { tag: [tags.number, tags.integer, tags.float], color: token('cm-number') },
   { tag: [tags.string, tags.character, tags.docString, tags.escape,
-          tags.color, tags.url], color: colour('cm-string', '#a11', '#c3e88d') },
-  { tag: [tags.special(tags.string), tags.regexp], color: colour('cm-string-2', '#f50', '#c3e88d') },
+          tags.color, tags.url], color: token('cm-string') },
+  { tag: [tags.special(tags.string), tags.regexp], color: token('cm-string-2') },
   { tag: [tags.comment, tags.lineComment, tags.blockComment, tags.docComment],
-    color: colour('cm-comment', '#a50', '#7f8c98'),
+    color: token('cm-comment'),
     fontStyle: 'var(--cm-comment-style, normal)' },
   { tag: [tags.definition(tags.variableName), tags.function(tags.variableName),
-          tags.definition(tags.function(tags.variableName))], color: colour('cm-def', '#00f', '#82aaff') },
-  { tag: [tags.local(tags.variableName)], color: colour('cm-variable-2', '#05a', '#addb67') },
+          tags.definition(tags.function(tags.variableName))], color: token('cm-def') },
+  { tag: [tags.local(tags.variableName)], color: token('cm-variable-2') },
   { tag: [tags.propertyName, tags.special(tags.variableName), tags.attributeName],
-    color: colour('cm-property', '#1c1e22', '#80cbc4') },
+    color: token('cm-property') },
   { tag: [tags.operator, tags.compareOperator, tags.arithmeticOperator, tags.logicOperator,
           tags.bitwiseOperator, tags.updateOperator, tags.definitionOperator, tags.typeOperator,
-          tags.controlOperator], color: colour('cm-operator', '#1c1e22', '#89ddff') },
+          tags.controlOperator], color: token('cm-operator') },
   { tag: [tags.standard(tags.variableName), tags.constant(tags.variableName),
-          tags.macroName], color: colour('cm-builtin', '#30a', '#ffcb6b') },
-  { tag: [tags.typeName, tags.className, tags.namespace], color: colour('cm-type', '#00f', '#82aaff') },
-  { tag: [tags.tagName], color: colour('cm-tag', '#708', '#f07178') },
-  { tag: [tags.attributeValue], color: colour('cm-string', '#a11', '#c3e88d') },
-  { tag: [tags.invalid], color: colour('cm-invalid', '#e45649', '#ff7676') },
+          tags.macroName], color: token('cm-builtin') },
+  { tag: [tags.typeName, tags.className, tags.namespace], color: token('cm-type') },
+  { tag: [tags.tagName], color: token('cm-tag') },
+  { tag: [tags.attributeValue], color: token('cm-string') },
+  { tag: [tags.invalid], color: token('cm-invalid') },
 ]);

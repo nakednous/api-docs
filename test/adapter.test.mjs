@@ -228,6 +228,18 @@ test('the accessible name: the textarea\'s aria-label reaches the editor\'s cont
   assert.equal(document.querySelectorAll('.cm-content').length, 0, 'both views are gone');
 });
 
+test('the theme states structure only: a token role falls back to the page ink', () => {
+  const { document, textarea } = fresh();
+  const adapter = mountEditor(textarea, {});
+  const css = [...document.head.querySelectorAll('style')].map((style) => style.textContent).join('\n');
+  assert.ok(css.includes('var(--cm-keyword, currentColor)'),
+    'a token role reads its variable and falls back to the ink, not to a palette of the package\'s');
+  assert.equal(/--cm-keyword[^;]*light-dark\(/.test(css), false, 'the package ships no token palette');
+  assert.ok(css.includes(':has(.cm-content:focus-visible)'), 'the keyboard ring is a CSS rule, not an extension');
+  assert.ok(css.includes('var(--cm-focus, var(--accent, currentColor))'));
+  adapter.destroy();
+});
+
 test('the theme and the highlight style are CSS variables with light and dark fallbacks', () => {
   const { document, textarea } = fresh();
   const adapter = mountEditor(textarea, {});
