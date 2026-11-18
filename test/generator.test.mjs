@@ -481,6 +481,24 @@ test('the vocabulary is checked on public blocks only, and @ignore is not public
   cleanup(root);
 });
 
+test('an @ignore block is deliberately internal: its own tags are not reported', () => {
+  const root = site({
+    'src/one.js': [
+      block(['@module one', '@license MIT']),
+      block(['An internal illustration.', '@ignore', '@example', 'const n = 1']),
+      'export function alpha() {}',
+    ].join('\n'),
+  });
+  const parsed = parseSources({ src: join(root, 'src'), ignore: 'skip' });
+  const decl = normalize({ ...DECLARATION, examples: { syntax: 'any' } },
+    { name: 'fixture.tree', version: '1.2.3', license: 'MIT' });
+  const link = linker({ parsed, references: {}, brand: 'fixture.tree' });
+  const { errors, warnings } = validate(parsed, { declaration: decl, readme: '', link });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(warnings, [], 'a block the site ignores is not a block that went missing');
+  cleanup(root);
+});
+
 // ── Render ──────────────────────────────────────────────────────────────────
 
 test('the renderer writes a page per module, the landing page, and the search index', () => {
@@ -510,6 +528,19 @@ test('the renderer writes a page per module, the landing page, and the search in
   const search = JSON.parse(files.get('search.json'));
   assert.deepEqual(search.map((e) => e.n).sort(), ['alpha', 'beta']);
   assert.equal(search.find((e) => e.n === 'alpha').h, 'mod.html#fixture/mod.alpha');
+  cleanup(root);
+});
+
+test('a site whose examples are module scripts says so on every figure', () => {
+  const { root, parsed, link } = fixtureParsed();
+  const decl = normalize({ ...DECLARATION, examples: { ...DECLARATION.examples, syntax: 'module' } },
+    { name: 'fixture.tree', version: '1.2.3', license: 'MIT' });
+  const files = render(parsed, {
+    declaration: decl, brand: decl.brand, link,
+    urls: { index: 'search.json' }, config: {}, readme: '', landing: null, stamp: '',
+  });
+  assert.match(files.get('mod.html'),
+    /<figure class="example" id="fixture\/mod\.alpha-example-1" data-mode="module">/);
   cleanup(root);
 });
 
@@ -728,6 +759,31 @@ test('an owner may live in several places in the build, or nowhere static', asyn
   cleanup(root);
 });
 
+test('an owner whose names are the surface\'s own top-level exports states an empty path', async () => {
+  const tree = {
+    ...FIXTURE,
+    'dist/index.js': 'export function alpha(a, b) { return a + b; }\n' +
+      'export function beta(a) { return a; }\n',
+  };
+  const root = site(tree);
+  const decl = {
+    ...DECLARATION,
+    paths: { ...DECLARATION.paths, module: 'dist/index.js' },
+    surface: { module: true, check: 'all' },
+    owners: { 'fixture/mod': '', 'fixture/carrier': '' },
+  };
+  const parsed = parseSources({ src: join(root, 'src'), carriers: [join(root, 'docs')], surface: true, ignore: 'skip' });
+  const link = linker({ parsed, references: DECLARATION.references, brand: 'fixture.tree' });
+  const normalized = normalize(decl, { name: 'fixture.tree', version: '1.2.3', license: 'MIT' });
+  const { readSurface } = await import('../src/generator/surface.js');
+  const read = await readSurface(normalized.surface, join(root, 'dist/index.js'));
+  const { errors } = validate(parsed, {
+    declaration: normalized, api: read.api, surfaceErrors: read.errors, readme: readmeOf(root), link,
+  });
+  assert.deepEqual(errors, []);
+  cleanup(root);
+});
+
 test('the surface can be an ES build\'s exports rather than an IIFE\'s global', async () => {
   const tree = {
     ...FIXTURE,
@@ -745,5 +801,31 @@ test('the surface can be an ES build\'s exports rather than an IIFE\'s global', 
     validate(parsed, { declaration: normalized, api: read.api, surfaceErrors: read.errors, readme: readmeOf(root), link }).errors,
     [],
   );
+  cleanup(root);
+});
+
+test('an ES build\'s namespace exports its members as getters, and their parameters still read', async () => {
+  const tree = {
+    ...FIXTURE,
+    'dist/tree.js': 'export function alpha(a, b) { return a + b; }\n' +
+      'export function beta(a) { return a; }\n',
+    'dist/index.js': "export * as tree from './tree.js';\n",
+  };
+  const root = site(tree);
+  const decl = {
+    ...DECLARATION,
+    paths: { ...DECLARATION.paths, module: 'dist/index.js' },
+    surface: { module: true, check: 'all' },
+    owners: { 'fixture/mod': 'tree', 'fixture/carrier': 'tree' },
+  };
+  const parsed = parseSources({ src: join(root, 'src'), carriers: [join(root, 'docs')], surface: true, ignore: 'skip' });
+  const link = linker({ parsed, references: DECLARATION.references, brand: 'fixture.tree' });
+  const normalized = normalize(decl, { name: 'fixture.tree', version: '1.2.3', license: 'MIT' });
+  const { readSurface } = await import('../src/generator/surface.js');
+  const read = await readSurface(normalized.surface, join(root, 'dist/index.js'));
+  const { errors } = validate(parsed, {
+    declaration: normalized, api: read.api, surfaceErrors: read.errors, readme: readmeOf(root), link,
+  });
+  assert.deepEqual(errors, [], 'a namespace owner reads its members and their parameters');
   cleanup(root);
 });

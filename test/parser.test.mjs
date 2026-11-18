@@ -70,6 +70,22 @@ test('a surface gate keeps only the names src/index.js re-exports', () => {
   cleanup(root);
 });
 
+test('a surface gate also keeps a verb src/index.js declares itself', () => {
+  const root = site({
+    'src/one.js': [block(['@module one']), block(['Carried.']), 'export function alpha() {}'].join('\n'),
+    'src/index.js': [
+      block(['@file The root module', '@module root', '@license MIT']),
+      "export { alpha } from './one.js';",
+      '',
+      block(['A verb of the root module.']),
+      'export function program() {}',
+    ].join('\n'),
+  });
+  const { doclets } = parseSources({ src: join(root, 'src'), surface: true });
+  assert.deepEqual(doclets.map((d) => `${d.name}:${d.module}`), ['program:root', 'alpha:one']);
+  cleanup(root);
+});
+
 test('members of the nominated class are public, and a getter joins its setter', () => {
   const root = site({
     'src/one.js': [
@@ -188,6 +204,28 @@ test('an example carries an optional caption, and its code is trimmed', () => {
   assert.equal(doclet.examples.length, 1);
   assert.equal(doclet.examples[0].caption, 'A red grid');
   assert.equal(doclet.examples[0].code, 'const q = createQuadrille(2);\nq.fill(255, 0, 0);');
+  cleanup(root);
+});
+
+test('a fenced shader line inside an example is the comment\'s markup, not its code', () => {
+  const root = site({
+    'src/one.js': [
+      block(['@module one']),
+      block(['A shader.', '@example', 'const p = program(ctx, `',
+        '```wgsl', '@fragment', 'fn fs() -> @location(0) vec4f {', '  return vec4f(1);', '}', '```',
+        '`)']),
+      'export function program() {}',
+    ].join('\n'),
+  });
+  const [doclet] = parseSources({ src: join(root, 'src') }).doclets;
+  assert.deepEqual(doclet.examples[0].code.split('\n'), [
+    'const p = program(ctx, `',
+    '@fragment',
+    'fn fs() -> @location(0) vec4f {',
+    '  return vec4f(1);',
+    '}',
+    '`)',
+  ]);
   cleanup(root);
 });
 

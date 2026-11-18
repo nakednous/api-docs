@@ -66,7 +66,7 @@ export function example(ex, id, i, { module = false } = {}) {
     </figure>`;
 }
 
-function functionDoclet(d, link, namespaces) {
+function functionDoclet(d, link, namespaces, moduleExamples) {
   const id = anchorOf(d);
   return `
   <article class="doclet function" id="${esc(id)}">
@@ -74,7 +74,7 @@ function functionDoclet(d, link, namespaces) {
     <div class="description">${link.md(d.description)}</div>
     ${fieldTable(d.params, link, 'Parameter')}
     ${d.returns ? `<p class="returns"><strong>Returns</strong> ${type(d.returns.type)} ${link.mdInline(d.returns.description)}</p>` : ''}
-    ${d.examples.length ? `<div class="examples">${d.examples.map((ex, i) => example(ex, id, i)).join('')}</div>` : ''}
+    ${d.examples.length ? `<div class="examples">${d.examples.map((ex, i) => example(ex, id, i, { module: moduleExamples })).join('')}</div>` : ''}
   </article>`;
 }
 
@@ -103,14 +103,14 @@ function constantsTable(list, link, namespaces) {
 }
 
 /** An owner's section; the module's own members need no heading under its title. */
-function ownerSection(owner, list, link, { module, namespaces }) {
+function ownerSection(owner, list, link, { module, namespaces, moduleExamples }) {
   const consts = list.filter((d) => d.kind === 'constant');
   const rest = list.filter((d) => d.kind !== 'constant');
   return `
   <section class="owner" id="${esc(owner)}">
     ${owner === module || namespaces.includes(owner) ? '' : `<h2>${esc(owner)}</h2>`}
     ${consts.length ? constantsTable(consts, link, namespaces) : ''}
-    ${rest.map((d) => (d.kind === 'typedef' ? typedefDoclet(d, link) : functionDoclet(d, link, namespaces))).join('')}
+    ${rest.map((d) => (d.kind === 'typedef' ? typedefDoclet(d, link) : functionDoclet(d, link, namespaces, moduleExamples))).join('')}
   </section>`;
 }
 
@@ -246,6 +246,9 @@ export function render(parsed, state) {
   const { declaration: decl, link, urls } = state;
   const pages = new Map();
   const modules = liveModules(parsed);
+  // A site whose examples are module scripts has its figure say so: the runner
+  // reads `data-mode` off the figure rather than inferring it from the source.
+  const moduleExamples = decl.examples.syntax === 'module';
   const nav = modules.map((m) => ({
     href: pageOf(m.name),
     label: m.name.slice(m.name.lastIndexOf('/') + 1),
@@ -297,7 +300,7 @@ export function render(parsed, state) {
       <div class="description">${link.md(m.description)}</div>
     </header>
     ${owners.map((o) => ownerSection(o, list.filter((d) => d.owner === o), link,
-    { module: m.name, namespaces: decl.namespaces })).join('')}`;
+    { module: m.name, namespaces: decl.namespaces, moduleExamples })).join('')}`;
     pages.set(pageOf(m.name), shell(state, {
       title: m.name, active: pageOf(m.name), nav, pager: pagerOf(i), body,
     }));

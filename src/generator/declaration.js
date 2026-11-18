@@ -162,8 +162,9 @@ function normalizeReadmeAssets(assets) {
 
 /**
  * Where each owner lives in the build: a path from the surface, a list of them
- * when the build hosts one owner's names in several places, or `null` for an
- * owner that is documented and not statically reachable.
+ * when the build hosts one owner's names in several places, an empty path for
+ * an owner whose names are the surface's own top-level exports, or `null` for
+ * an owner that is documented and not statically reachable.
  */
 function normalizeOwners(owners) {
   if (owners == null) return {};
@@ -174,7 +175,7 @@ function normalizeOwners(owners) {
   for (const [owner, value] of Object.entries(owners)) {
     if (value === null) { out[owner] = null; continue; }
     const paths = Array.isArray(value) ? value : [value];
-    if (!paths.length || paths.some((p) => typeof p !== 'string' || !p)) {
+    if (!paths.length || paths.some((p) => typeof p !== 'string')) {
       throw new DeclarationError(`owner ${owner} needs a path from the surface, a list of them, or null`);
     }
     out[owner] = Array.isArray(value) ? [...paths] : paths[0];

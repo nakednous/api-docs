@@ -62,7 +62,9 @@ function descriptorOf(obj, name) {
  */
 function scopeAt(api, path) {
   const factory = path.endsWith('()');
-  const target = (factory ? path.slice(0, -2) : path).split('.')
+  // An empty path is the surface itself: a carrier whose documented names are
+  // the build's own top-level exports.
+  const target = path === '' ? api : (factory ? path.slice(0, -2) : path).split('.')
     .reduce((o, k) => (o == null ? o : o[k]), api);
   if (target == null) return null;
   if (factory) {
@@ -79,15 +81,19 @@ function scopeAt(api, path) {
     has: (name) => descriptorOf(target, name) !== null,
     params: (name) => {
       const d = descriptorOf(target, name);
-      return d && typeof d.value === 'function' ? paramNames(String(d.value)) : [];
+      // An ES module namespace exports its members as getters: the descriptor
+      // carries no `value`, so the member is read through the namespace.
+      const fn = d && typeof d.value === 'function' ? d.value : target[name];
+      return typeof fn === 'function' ? paramNames(String(fn)) : [];
     },
   };
 }
 
 /**
  * An owner's members in the build, per the declared `owners` entry: one path
- * from the surface, or several when the build hosts the owner's names in more
- * than one place (a class whose methods split between two prototypes).
+ * from the surface, several when the build hosts the owner's names in more
+ * than one place (a class whose methods split between two prototypes), or an
+ * empty path for the surface itself.
  * @param {Object} api  the evaluated global or the imported namespace
  * @param {Object<string, string|string[]|null>} owners
  * @param {string} owner

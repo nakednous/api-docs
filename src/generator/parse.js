@@ -8,8 +8,9 @@
  *     `@typedef` or `@name` tag wins over the inference).
  *   - A block above an indented member of one nominated class names that member
  *     — `members: 'Quadrille'` — and its owner defaults to the class.
- *   - When `surface` is set, `src/index.js` is read for `export { … } from`
- *     declarations and only the names it re-exports are public.
+ *   - When `surface` is set, `src/index.js` is read for what it puts on the
+ *     surface — `export { … } from` declarations and the exports it declares
+ *     itself — and only those names are public.
  *   - `@ignore` either keeps the block out of the site and visible to a coverage
  *     check (`ignore: 'keep'`) or drops it (`ignore: 'skip'`).
  *   - A leading `_` marks a name private and keeps it off the site, unless the
@@ -38,6 +39,7 @@ import { join } from 'node:path';
 import { parse } from 'comment-parser';
 
 const EXPORT_RE  = /^export\s+(?:default\s+)?(?:async\s+)?(function|class|const|let|var)\*?\s+([A-Za-z_$][\w$]*)/;
+const DECLARED_RE = /^export\s+(?:async\s+)?(function|class|const|let|var)\*?\s+([A-Za-z_$][\w$]*)/;
 const MEMBER_RE  = /^(static\s+)?(get\s+|set\s+)?(async\s+)?\*?\s*([A-Za-z_$][\w$]*)\s*[=(]/;
 const CAPTION_RE = /^<caption>([\s\S]*?)<\/caption>\s*$/;
 const REEXPORT_RE = /^export\s*\{([^}]*)\}\s*from\b/gm;
@@ -77,6 +79,13 @@ function trimBlank(code) {
 }
 
 /**
+ * A fence line inside an `@example`. A doc block reads a line that begins with
+ * `@` as a tag, so a shader's attribute must be fenced; the fence is the
+ * comment's markup and not the example's code, so it never reaches the page.
+ */
+const FENCE_LINE = /^\s*```[\w-]*\s*$/;
+
+/**
  * An @example: optional `<caption>` as its first line (on the tag line or the
  * line after), code on the rest.
  * @param {Object} tag  a comment-parser tag
@@ -89,7 +98,8 @@ function exampleOf(tag) {
   const cap   = CAPTION_RE.exec(lines[0].trim());
   return {
     caption: cap ? cap[1].trim() : null,
-    code:    trimBlank((cap ? lines.slice(1) : lines).join('\n')),
+    code:    trimBlank((cap ? lines.slice(1) : lines).join('\n'))
+      .split('\n').filter((line) => !FENCE_LINE.test(line)).join('\n'),
   };
 }
 
@@ -300,7 +310,9 @@ function mergeSurfaces(doclets, { private: privateRule }) {
   return merged;
 }
 
-/** The names `src/index.js` re-exports (`a as b` yields `b`), or null. */
+/** The names `src/index.js` puts on the surface: the ones it re-exports
+ * (`a as b` yields `b`) and the ones it declares itself — a bridge's own verb
+ * may live in its root module, as webgpu.tree's `program` does. */
 function surfaceOf(srcDir) {
   let text;
   try { text = readFileSync(join(srcDir, 'index.js'), 'utf8'); } catch (_) { return null; }
@@ -310,6 +322,10 @@ function surfaceOf(srcDir) {
       const name = item.trim().split(/\s+as\s+/).pop();
       if (name) names.add(name);
     }
+  }
+  for (const line of text.split('\n')) {
+    const declared = DECLARED_RE.exec(line.trim());
+    if (declared) names.add(declared[2]);
   }
   return names;
 }

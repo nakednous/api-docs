@@ -41,10 +41,10 @@ Every field is a statement about the site, never a step. The ones this package r
 | `outputs` | `bundle`, `module`, `deps`, `index`, `editor`, `notices` — what the build writes, as the page names it |
 | `brand` | `name`, `version`, `license`; each defaults to the package manifest, and a stated version that disagrees with it is the site's problem, not a build fact |
 | `carrier` | `docs`: documentation-only sources the parser reads; `landing`: a Markdown file rendered as a section of the landing page, its one `js` fence a live module demo (`{ file, section, id }`) |
-| `parse` | `surface` (gate on `src/index.js`'s re-exports), `members` (the class whose indented members are public), `ignore` (`'skip'` drops an `@ignore` block, `'keep'` keeps it for a coverage check), `private` (`'skip'` keeps a leading `_` off the site, `'keep'` documents it) |
+| `parse` | `surface` (gate on what `src/index.js` re-exports or declares), `members` (the class whose indented members are public), `ignore` (`'skip'` drops an `@ignore` block, `'keep'` keeps it for a coverage check), `private` (`'skip'` keeps a leading `_` off the site, `'keep'` documents it), `vocabulary` (the site's own closed tag set, where it states one) |
 | `examples` | `syntax` (`'global'` — classic scripts, `'module'`, `'any'`), `global` (the global an example must read), `required` (a function with no `@example` is a warning), `setup` (every example defines `setup()`) |
 | `surface` | `global` (the name the IIFE leaves behind, or the host global it installs onto) or `module: true` (the ES build at `paths.module`, imported), `globals` (what that build reads at load), `check` (`'reexports'` — the documentation-only carriers only — or `'all'`) |
-| `owners` | where each owner lives in the build: a path from the surface, a list of paths when one owner's names sit in several places, `path()` for the object a factory returns (its methods defined in the factory's body or attached to the result), or `null` for an owner that is documented and not statically reachable |
+| `owners` | where each owner lives in the build: a path from the surface, a list of paths when one owner's names sit in several places, an empty path for an owner whose names are the surface's own top-level exports, `path()` for the object a factory returns (its methods defined in the factory's body or attached to the result), or `null` for an owner that is documented and not statically reachable |
 | `ownerOrder` | the owners a page puts first, in order; a bare name several owners share resolves to the first of them |
 | `namespaces` | owners written as a prefix in signatures (`tree.mat4Mul`) |
 | `pins` | `{ 'twgl.js': { version, script, module } }` — a CDN artifact a page loads, one version, the paths it names |
@@ -132,9 +132,12 @@ because a site's own tool may want the tables without a site — a parity run do
 
 Source files plus any documentation-only carrier files in, one module table and one doclet table out.
 The union of the rules the sites state today, each chosen by an option: `surface` gates publicity on
-`src/index.js`'s re-exports, `members` names the class whose indented members are public, `ignore` says
-whether an `@ignore` block is kept for a coverage check or dropped, `private` says what a leading `_`
-means, `carriers` lists the documentation-only directories.
+what `src/index.js` puts on the surface — the names it re-exports and the ones it declares itself —
+`members` names the class whose indented members are public, `ignore` says whether an `@ignore` block is
+kept for a coverage check or dropped, `private` says what a leading `_` means, `carriers` lists the
+documentation-only directories. A `@example` is its caption and its code; a fenced line inside it
+(` ```wgsl ` … ` ``` `) is dropped from the code, because a doc block reads a line that begins with `@`
+as a tag and the fence is the comment's markup.
 
 ### validate
 
@@ -157,6 +160,8 @@ asset an older page may still ask for, and resolves every reference it wrote aga
 when `mode` is `'esm'`, classic `defer` scripts when it is `'global'`. The block is the page's config
 either way, and its contents are `runner.config` with the `{tokens}` resolved; a classic page reads it by
 that id instead of writing a global of its own, so `mode` decides how the scripts load and nothing else.
+A site whose `examples.syntax` is `'module'` has its example figures carry `data-mode="module"`, so the
+site's runner reads the shape off the markup rather than inferring it from the source.
 
 **The stylesheets.** `shell.base` is where the package's base stylesheet is written, and a page that
 states one loads it before the site's own file. The base is the structure of this markup — the grid, the

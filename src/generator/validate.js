@@ -84,7 +84,10 @@ export function validate(parsed, ctx) {
   const vocabulary = decl.parse.vocabulary ? new Set(decl.parse.vocabulary) : VOCABULARY;
   for (const b of blocks) {
     if (!b.public && !b.module) {
-      if (b.tags.includes('memberof') || b.tags.includes('example')) {
+      // An `@ignore` block is deliberately internal — a bridge's own seam and
+      // its illustration — so its tags are its own; anything else is a block
+      // that meant to be on the site and is not.
+      if (!b.tags.includes('ignore') && (b.tags.includes('memberof') || b.tags.includes('example'))) {
         warn(b, 'vocabulary', 'internal block carries @memberof/@example but no @function/@constant/@typedef and no export — ignored');
       }
       continue;
