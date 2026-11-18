@@ -15,7 +15,10 @@
  *     graph: the generator may need Node packages (it runs at build time), but a
  *     page must never receive one;
  *   - the root export is absent — a site imports the served bundle, never the
- *     adapter's source, so `@nakednous/scholion` itself does not resolve.
+ *     adapter's source, so `@nakednous/scholion` itself does not resolve;
+ *   - the generator's export does resolve, and imports: a site's `npm run docs`
+ *     runs it out of a production-only install, so its own dependencies have to
+ *     be there and none of them may be a development one.
  *
  * The throwaway project sets its own npm cache inside its directory, so the
  * gate does not depend on the machine's cache being writable. The pack runs with
@@ -29,7 +32,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { basename, dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -101,6 +104,11 @@ try {
     rootResolves = false;
   }
   check('the root export is absent, so no site can import the adapter by name', !rootResolves);
+
+  const generator = await import(pathToFileURL(require.resolve(`${pkg.name}/generator`)).href);
+  check('the generator resolves and imports from a production-only install',
+    ['parseSources', 'validate', 'render', 'build'].every((name) => typeof generator[name] === 'function'),
+    Object.keys(generator).join(' '));
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

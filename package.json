@@ -19,7 +19,8 @@
     "src"
   ],
   "exports": {
-    "./manifest.json": "./dist/manifest.json"
+    "./manifest.json": "./dist/manifest.json",
+    "./generator": "./src/generator/index.js"
   },
   "scripts": {
     "build": "node scripts/build-editor.mjs",
@@ -39,6 +40,7 @@
     "jsdom": "31.0.1"
   },
   "dependencies": {
-    "comment-parser": "1.4.9"
+    "comment-parser": "1.4.9",
+    "marked": "18.1.3"
   }
 }

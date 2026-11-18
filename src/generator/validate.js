@@ -1,0 +1,211 @@
+/**
+ * @file Validation — the doclet table against the tag vocabulary, the built
+ * surface, the examples' own rule, and the site's links; the README against the
+ * pages and names the build writes.
+ * @license AGPL-3.0-only
+ *
+ * Errors stop a build. Warnings print and continue, except the codes a
+ * declaration names in `strict`, which fail it — the difference between a rule
+ * a site states (`@example` must run) and a rule it only wants reported (a
+ * public name with no doc block).
+ *
+ * A plugin's `validate(parsed, ctx)` runs last and adds errors and warnings of
+ * its own; it is how a site keeps what is its own inside this pass.
+ */
+
+import { VOCABULARY } from './declaration.js';
+import { liveModules, pageOf, anchorOf } from './links.js';
+import { referenceUrl } from './references.js';
+import { ownerScope } from './surface.js';
+import { splitFences } from './markdown.js';
+
+const LINK_RE = /\{@link\s+([^}\s]+)\s*\}/g;
+const MODULE_SYNTAX_RE = /^\s*(import|export)\b|\bimport\s*\(|\bawait\b/m;
+
+function* fields(rows) {
+  for (const r of rows) { yield r; yield* fields(r.children); }
+}
+
+/** Every free-text field of a doclet that may carry `{@link}`. */
+function* texts(d) {
+  yield d.description;
+  yield d.tagDescription;
+  if (d.returns) yield d.returns.description;
+  for (const f of fields(d.params)) yield f.description;
+  for (const f of fields(d.properties)) yield f.description;
+}
+
+/** Every `{@link name}` target in a markdown string, fenced code excluded. */
+export function linkTargets(md) {
+  const out = [];
+  splitFences(md ?? '').forEach((seg, i) => {
+    if (i % 2) return;
+    for (const m of seg.matchAll(LINK_RE)) out.push(m[1]);
+  });
+  return out;
+}
+
+/** Every absolute API-site target the README carries — inline or reference-style — and its line. */
+export function readmeTargets(md, home) {
+  const out = new Map();
+  const lines = String(md).split('\n');
+  lines.forEach((text, i) => {
+    for (const m of text.matchAll(/\]\((https?:\/\/[^)\s]+)\)/g)) out.set(m[1], i + 1);
+    const ref = /^\[[^\]]+\]:\s*(\S+)$/.exec(text);
+    if (ref) out.set(ref[1], i + 1);
+  });
+  return [...out].filter(([url]) => url.startsWith(home) && url.length > home.length);
+}
+
+/**
+ * @param {{ modules: Object[], doclets: Object[], blocks: Object[] }} parsed
+ * @param {Object} ctx
+ * @param {Object} ctx.declaration  the normalized declaration
+ * @param {Object} [ctx.api]        the evaluated global or imported namespace
+ * @param {string[]} [ctx.surfaceErrors]  what reading the build already failed at
+ * @param {string|null} [ctx.readme]      the README's markdown, whose own links are checked
+ * @param {Object} ctx.link         the linker — the name table the prose resolves through
+ * @returns {{ errors: string[], warnings: string[], findings: Object[] }}
+ */
+export function validate(parsed, ctx) {
+  const { modules, doclets, blocks } = parsed;
+  const { declaration: decl, api, link, readme } = ctx;
+  const findings = [];
+  const at = (x) => `${x.file}:${x.line}`;
+  const fail = (x, code, msg) => findings.push({ level: 'error', code, text: `${at(x)}  ${msg}` });
+  const warn = (x, code, msg) => findings.push({ level: 'warning', code, text: `${at(x)}  ${msg}` });
+
+  for (const e of ctx.surfaceErrors ?? []) findings.push({ level: 'error', code: 'surface', text: e });
+
+  // Vocabulary — public blocks and module headers only; internal blocks are not
+  // the site's prose and are not policed.
+  for (const b of blocks) {
+    if (!b.public && !b.module) {
+      if (b.tags.includes('memberof') || b.tags.includes('example')) {
+        warn(b, 'vocabulary', 'internal block carries @memberof/@example but no @function/@constant/@typedef and no export — ignored');
+      }
+      continue;
+    }
+    for (const t of b.tags) {
+      if (!VOCABULARY.has(t)) fail(b, 'vocabulary', `tag @${t} is outside the vocabulary`);
+    }
+  }
+
+  // Module headers — a file with public blocks needs one, and it states its licence.
+  for (const d of doclets) {
+    if (!d.module) fail(d, 'module', `no @module header in ${d.file}`);
+  }
+  for (const m of modules) {
+    if (!m.license) fail(m, 'license', `@module ${m.name} carries no @license`);
+  }
+
+  // Names and owners.
+  const seen = new Map();
+  for (const d of doclets) {
+    if (d.explicitName && d.exportName && d.explicitName !== d.exportName) {
+      fail(d, 'name', `@function ${d.explicitName} contradicts export ${d.exportName}`);
+    }
+    const block = blocks.find((b) => b.doclet === d);
+    if (d.via === 'function' && block && !block.tags.includes('memberof')) {
+      fail(d, 'name', `@function ${d.name} without @memberof`);
+    }
+    const key = `${d.owner}.${d.name}`;
+    if (seen.has(key)) warn(d, 'duplicate', `duplicate ${key} (first at ${seen.get(key)})`);
+    else seen.set(key, at(d));
+    for (const o of d.orphans) warn(d, 'orphan', `dotted @param ${o} has no parent parameter`);
+  }
+
+  // Groups and pages — read only where a site states the teaching structure.
+  if (decl.groups.length) {
+    const slugs = new Set(decl.groups.map((g) => g.slug));
+    const pageRe = /^[a-z0-9_]+(\/[a-z0-9_]+)*$/;
+    for (const d of doclets) {
+      if (d.ignore) continue;
+      const key = `${d.owner}.${d.name}`;
+      if (!d.group) fail(d, 'group', `${key} names no @group`);
+      else if (!slugs.has(d.group)) fail(d, 'group', `${key} names unknown @group ${d.group}`);
+      if (d.page && !pageRe.test(d.page)) fail(d, 'group', `@page ${d.page} is not a docs path`);
+    }
+  }
+
+  // Links — a documented name, a package, or an external library's grammar.
+  const resolves = (target) => link.table.has(target) || referenceUrl(decl.references, target) !== null;
+  for (const d of doclets) {
+    for (const t of texts(d)) {
+      for (const target of linkTargets(t)) {
+        if (!resolves(target)) fail(d, 'links', `unresolved {@link ${target}}`);
+      }
+    }
+  }
+  for (const m of modules) {
+    for (const target of linkTargets(m.description)) {
+      if (!resolves(target)) fail(m, 'links', `unresolved {@link ${target}}`);
+    }
+  }
+
+  // Examples — the site's own rule, declared: their syntax, the global they read.
+  const ex = decl.examples;
+  for (const d of doclets) {
+    d.examples.forEach((example, i) => {
+      if (ex.syntax === 'global' && MODULE_SYNTAX_RE.test(example.code)) {
+        fail(d, 'example', `@example #${i + 1} of ${d.name} uses module syntax — examples are classic scripts`);
+      } else if (ex.global && !new RegExp(`=\\s*${ex.global}\\b`).test(example.code)) {
+        fail(d, 'example', `@example #${i + 1} of ${d.name} does not read the ${ex.global} global`);
+      }
+    });
+    if (ex.required && d.kind === 'function' && d.examples.length === 0) {
+      warn(d, 'example', `${d.owner}.${d.name} has no @example`);
+    }
+  }
+
+  // The surface — every documented name is in the build, and a function's
+  // parameters are the ones its source declares.
+  if (decl.surface && api) {
+    for (const d of doclets) {
+      if (decl.surface.check === 'reexports' && !d.reexport) continue;
+      if (d.ignore) continue;
+      const scope = ownerScope(api, decl.owners, d.owner);
+      if (!scope) { fail(d, 'surface', `owner ${d.owner} of ${d.name} is not in the build`); continue; }
+      if (!scope.has(d.name)) { fail(d, 'surface', `${d.owner}.${d.name} is not in the build`); continue; }
+      if (d.kind !== 'function') continue;
+      const built = scope.params(d.name);
+      const documented = d.params.map((p) => p.name);
+      if (built.length !== documented.length || built.some((n, i) => n !== null && n !== documented[i])) {
+        fail(d, 'surface', `${d.owner}.${d.name}(${documented.join(', ')}) does not match the build's (${built.map((n) => n ?? '{…}').join(', ')})`);
+      }
+    }
+  }
+
+  // The README's own links into the site — every one names a page this build
+  // writes and, with an anchor, a name it documents. The README carries them by
+  // hand, so this is what keeps them from rotting.
+  if (readme && decl.home) {
+    const written = new Set(['index.html']);
+    for (const m of liveModules(parsed)) written.add(pageOf(m.name));
+    const documented = new Set(doclets.map((d) => `${pageOf(d.module)}#${anchorOf(d)}`));
+    for (const [url, line] of readmeTargets(readme, decl.home)) {
+      const [page, anchor] = url.slice(decl.home.length).split('#');
+      const ok = anchor ? documented.has(`${page}#${anchor}`) : written.has(page);
+      if (ok) continue;
+      findings.push({
+        level: 'error', code: 'readme',
+        text: `${decl.paths.readme}:${line}  ${url} is ${anchor ? 'no documented name' : 'no page'} in this build`,
+      });
+    }
+  }
+
+  promote(findings, decl.strict);
+  return {
+    findings,
+    errors: findings.filter((f) => f.level === 'error').map((f) => f.text),
+    warnings: findings.filter((f) => f.level === 'warning').map((f) => f.text),
+  };
+}
+
+/** A code a site names in `strict` fails the build rather than printing. */
+function promote(findings, strict) {
+  if (!strict?.length) return;
+  for (const f of findings) {
+    if (f.level === 'warning' && strict.includes(f.code)) f.level = 'error';
+  }
+}
