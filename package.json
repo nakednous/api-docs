@@ -1,6 +1,6 @@
 {
   "name": "@nakednous/scholion",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "The shared API reference scaffold for the nakednous libraries: ESM-only, CodeMirror 6, one editor bundle.",
   "type": "module",
   "license": "AGPL-3.0-only",
