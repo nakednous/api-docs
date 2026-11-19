@@ -1,6 +1,6 @@
 # @nakednous/scholion
 
-[![npm](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fregistry.npmjs.org%2F%40nakednous%2Fscholion&query=$.dist-tags.latest&label=npm&color=1c1e22&logo=npm&logoColor=white)](https://www.npmjs.com/package/@nakednous/scholion)
+[![npm](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fregistry.npmjs.org%2F%40nakednous%2Fscholion&query=$.dist-tags.latest&label=npm&color=1c1e22)](https://www.npmjs.com/package/@nakednous/scholion)
 
 One scaffold for the API reference sites of four libraries — [p5.quadrille.js](https://objetos.github.io/p5.quadrille.js/),
 [p5.tree](https://visualcomputing.github.io/p5.tree/), [webgl.tree](https://jpcharalambosh.co/webgl.tree/)
