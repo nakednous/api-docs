@@ -199,6 +199,31 @@ test('a brand a declaration states wins over the manifest', () => {
   assert.equal(decl.brand.version, '1.2.3');
 });
 
+test('a site may put a badge in the rail in place of the version line', async () => {
+  const root = site(FIXTURE);
+  await build(withDecl({ shell: { ...DECLARATION.shell, badge: {
+    src: 'https://img.shields.io/badge/dynamic/json?url=x&query=$.dist-tags.latest&label=npm&color=1f6feb',
+    href: 'https://www.npmjs.com/package/fixture.tree',
+  } } }), { root, log: recorder() });
+  const page = readFileSync(join(root, 'site/mod.html'), 'utf8');
+
+  assert.match(page, /<a class="badge" href="https:\/\/www.npmjs.com\/package\/fixture.tree"><img src="https:\/\/img\.shields\.io\/[^"]+" alt="npm 1\.2\.3"><\/a>/,
+    'the badge, where the rail shows it, with the version as its accessible name');
+  assert.doesNotMatch(page, /<span class="version">/, 'and no version line beside it');
+  cleanup(root);
+
+  const bare = site(FIXTURE);
+  await build(DECLARATION, { root: bare, log: recorder() });
+  assert.match(readFileSync(join(bare, 'site/mod.html'), 'utf8'), /<span class="version">v1\.2\.3<\/span>/,
+    'a site that states no badge keeps the version line');
+  cleanup(bare);
+
+  const pkg = { name: 'x.tree', version: '0.0.1', license: 'MIT' };
+  const base = { paths: { src: 'src', pkg: 'package.json', site: 'site' }, outputs: { index: 'search.json' }, runner: { script: 'r.js' } };
+  assert.throws(() => normalize({ ...base, shell: { badge: { src: '/badge.svg', href: 'https://x.test/' } } }, pkg), DeclarationError);
+  assert.throws(() => normalize({ ...base, shell: { badge: { src: 'https://x.test/b.svg' } } }, pkg), DeclarationError);
+});
+
 test('a declaration states no palette: the colour is the site\'s stylesheet', () => {
   const decl = normalize({ ...DECLARATION, palette: ['#000000', '#ffffff'] },
     { name: 'fixture.tree', version: '1.2.3', license: 'MIT' });

@@ -288,6 +288,7 @@ function normalizeShell(shell) {
   return {
     base: normalizeBase(shell?.base),
     stylesheet: shell?.stylesheet ?? null,
+    badge: normalizeBadge(shell?.badge),
     favicon: shell?.favicon ?? [],
     title: shell?.title ?? null,
     search: {
@@ -309,6 +310,26 @@ function normalizeBase(base) {
     throw new DeclarationError('shell.base is the site path the package\'s base stylesheet is written to');
   }
   return base;
+}
+
+/**
+ * The badge the rail shows in place of the version: an image and where it links.
+ * Both are absolute — the image is served by a badge service, not by the site —
+ * and a site that states none keeps the `v<version>` line.
+ */
+function normalizeBadge(badge) {
+  if (badge == null) return null;
+  const absolute = (value, field) => {
+    if (typeof value !== 'string' || !/^https?:\/\//.test(value)) {
+      throw new DeclarationError(`shell.badge.${field} is an absolute http(s) URL`);
+    }
+    return value;
+  };
+  return {
+    src: absolute(badge.src, 'src'),
+    href: absolute(badge.href, 'href'),
+    alt: badge.alt ?? null,
+  };
 }
 
 /** Plugin names — resolved against the declaration's own directory by `build`. */

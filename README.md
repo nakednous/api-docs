@@ -53,7 +53,7 @@ A field is a statement about the site, never a step.
 | `references` | `packages` (name → address), `externals` (a documentation grammar), `aliases`, `readme` (`'linked'` or `'plain'`) |
 | `home` | the address the site is served from; a README link into it names a page and a name the build writes |
 | `mode` | `'esm'` or `'global'` — how the page loads its own scripts; the JSON block is its config either way |
-| `shell` | `base` (the site path the package's base stylesheet is written to), `stylesheet` (the site's own, which states the colour), `favicon`, `search` |
+| `shell` | `base` (the site path the package's base stylesheet is written to), `stylesheet` (the site's own, which states the colour), `badge` (an image and where it links, shown in the rail in place of the `v<version>` line; `{ src, href, alt }`, both URLs absolute), `favicon`, `search` |
 | `runner` | `script`, `search`, `chrome`, `extra`, `video` (loaded only by a page that carries a video shortcode), `config` (the page's config block) |
 | `groups`, `areas` | the teaching structure; a site that states none has `@group`/`@page` ignored |
 | `plugins` | the names this site's code is known by, resolved as `paths.plugins/<name>.mjs` |

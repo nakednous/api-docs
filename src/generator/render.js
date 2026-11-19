@@ -204,7 +204,9 @@ export function shell(state, { title, active, body, nav, pager = '', page = null
   <nav class="sidebar" id="site-sidebar" aria-label="Documentation">
     <div class="side-head">
       <a class="brand" href="${root}index.html">${esc(brand.name)}</a>
-      <span class="version">v${esc(brand.version)}</span>
+      ${decl.shell.badge
+    ? `<a class="badge" href="${esc(decl.shell.badge.href)}"><img src="${esc(decl.shell.badge.src)}" alt="${esc(decl.shell.badge.alt ?? `npm ${brand.version}`)}"></a>`
+    : `<span class="version">v${esc(brand.version)}</span>`}
       ${themeControl('head-theme')}
       <button class="rail-toggle" type="button" data-rail-toggle aria-controls="site-sidebar" aria-expanded="true" aria-label="Hide the navigation">«</button>
     </div>
